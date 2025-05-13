@@ -6,24 +6,6 @@ require 'open3' # Used in convert_to_hls
 # You might need to run: gem install rackup
 require 'rackup/handler/webrick'
 
-# Check if the ffmpeg command is available (basic check)
-begin
-  # Try using the -version option to check existence and display version
-  ffmpeg_check_output = `#{FFMPEG_COMMAND} -version`
-  raise "ffmpeg command not found or failed" unless $?.success?
-  puts "Info: ffmpeg found."
-  # puts ffmpeg_check_output # Uncomment to display version info if needed
-rescue Errno::ENOENT => e
-   puts "Error: ffmpeg command '#{FFMPEG_COMMAND}' not found. Please check the path or install ffmpeg."
-   puts "Error details: #{e.message}"
-   exit(1)
-rescue => e
-   puts "Error: Failed to execute ffmpeg command. Please check the path and permissions."
-   puts "Error details: #{e.message}"
-   exit(1)
-end
-
-
 # Rack application class
 module MiniradioServer
   class App
