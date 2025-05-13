@@ -42,7 +42,7 @@ require_relative "miniradio_server/app"
 # --- Server Startup ---
 
 # Only run server startup logic if the script is executed directly
-if __FILE__ == $PROGRAM_NAME || 'bin/miniradio_server' == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME || 'bin/miniradio_server' == $PROGRAM_NAME || 'miniradio_server' == $PROGRAM_NAME
   logger = Logger.new(STDOUT)
   # Ensure directories exist before starting the app
   # Use constants defined within the module
