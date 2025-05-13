@@ -54,6 +54,4 @@ class TestMiniradioServer < Minitest::Test
     assert Dir.exist?(MiniradioServer::MP3_SRC_DIR), "MP3_SRC_DIR should be created by ensure_directories_exist"
     assert Dir.exist?(MiniradioServer::HLS_CACHE_DIR), "HLS_CACHE_DIR should be created by ensure_directories_exist"
   end
-
-  # test_it_does_something_useful は削除
 end
