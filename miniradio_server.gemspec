@@ -45,6 +45,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "rackup"
   spec.add_dependency "webrick"
   spec.add_dependency "open3"
+  spec.add_dependency "logger"
 
   # For more information and examples about making a new gem, check out our
   # guide at: https://bundler.io/guides/creating_gem.html
