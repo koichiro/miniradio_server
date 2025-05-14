@@ -108,6 +108,7 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 * Rendering of the Delivered Music list page
 * Continuous playback of multiple Music tracks
 * Multilingual support for file names.
+* Use hls.js to support playback in Chrome.
 
 ## Contributing
 

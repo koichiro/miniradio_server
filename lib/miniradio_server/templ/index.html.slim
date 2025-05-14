@@ -1,0 +1,7 @@
+doctype html
+html
+    body
+        ul 
+            - mp3_list.each do |file|
+                li
+                    a> href='/stream/#{file.basename(".mp3")}/playlist.m3u8' #{file.basename}

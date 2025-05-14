@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 require 'rack'
 require 'open3' # Used in convert_to_hls
+require 'tilt/slim'
 
 # Required to use the handler from Rack 3+
 # You might need to run: gem install rackup
@@ -22,6 +23,11 @@ module MiniradioServer
     def call(env)
       request_path = env['PATH_INFO']
       @logger.info "Request received: #{request_path}"
+
+      match = request_path.match(%r{^/$|^/index(\.html)$})
+      if match
+        return response(200, index, 'text/html')
+      end
 
       # Path pattern: /stream/{mp3_basename}/{playlist or segment}
       # mp3_basename is the filename without the extension
@@ -100,6 +106,15 @@ module MiniradioServer
       @logger.error "Unexpected error occurred: #{e.message}"
       @logger.error e.backtrace.join("\n")
       return internal_server_error_response
+    end
+
+    def get_mp3_list
+      @mp3_dir.glob("*.mp3")
+    end
+  
+    def index
+        template = Tilt::SlimTemplate.new("#{__dir__}/templ/index.html.slim")
+        output = template.render(self, :mp3_list => get_mp3_list)
     end
 
     private
