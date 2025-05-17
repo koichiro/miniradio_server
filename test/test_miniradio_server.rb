@@ -12,6 +12,7 @@ class TestMiniradioServer < Minitest::Test
     @original_hls_cache_dir = MiniradioServer.send(:remove_const, :HLS_CACHE_DIR) if defined?(MiniradioServer::HLS_CACHE_DIR)
     MiniradioServer.const_set(:MP3_SRC_DIR, File.join(@tmp_dir, 'mp3_files'))
     MiniradioServer.const_set(:HLS_CACHE_DIR, File.join(@tmp_dir, 'hls_cache'))
+    @dummy_logger = Logger.new(IO::NULL)
   end
 
   # テスト実行後に一時ディレクトリを削除し、定数を元に戻す
@@ -45,13 +46,31 @@ class TestMiniradioServer < Minitest::Test
 
     # リファクタリングされたメソッドを直接呼び出す
     # テスト中はログ出力を抑制するためにダミーロガーを使用
-    dummy_logger = Logger.new(IO::NULL)
     MiniradioServer.ensure_directories_exist(
       [MiniradioServer::MP3_SRC_DIR, MiniradioServer::HLS_CACHE_DIR],
-      dummy_logger
+      @dummy_logger
     )
 
     assert Dir.exist?(MiniradioServer::MP3_SRC_DIR), "MP3_SRC_DIR should be created by ensure_directories_exist"
     assert Dir.exist?(MiniradioServer::HLS_CACHE_DIR), "HLS_CACHE_DIR should be created by ensure_directories_exist"
+  end
+
+  def test_generete_index
+    MiniradioServer.ensure_directories_exist(
+      [MiniradioServer::MP3_SRC_DIR, MiniradioServer::HLS_CACHE_DIR],
+      @dummy_logger
+    )
+
+    # サンプルmp3をコピー
+    FileUtils.cp("#{__dir__}/sample/eine.mp3", File.join(@tmp_dir, 'mp3_files'))
+
+    app = MiniradioServer::App.new(
+      MiniradioServer::MP3_SRC_DIR,
+      MiniradioServer::HLS_CACHE_DIR,
+      MiniradioServer::FFMPEG_COMMAND,
+      MiniradioServer::HLS_SEGMENT_DURATION,
+      @dummy_logger
+    )
+    assert_equal app.index, "<!DOCTYPE html><html><body><ul><li><a href=\"/stream/eine/playlist.m3u8\">eine.mp3</a> </li></ul></body></html>"
   end
 end

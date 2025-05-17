@@ -5,6 +5,8 @@ PATH
       logger
       open3
       rackup
+      slim
+      tilt
       webrick
 
 GEM
@@ -33,7 +35,12 @@ GEM
       psych (>= 4.0.0)
     reline (0.6.1)
       io-console (~> 0.5)
+    slim (5.2.1)
+      temple (~> 0.10.0)
+      tilt (>= 2.1.0)
     stringio (3.1.6)
+    temple (0.10.3)
+    tilt (2.6.0)
     webrick (1.9.1)
 
 PLATFORMS
