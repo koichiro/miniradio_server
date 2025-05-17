@@ -24,6 +24,7 @@ module MiniradioServer
       request_path = env['PATH_INFO']
       @logger.info "Request received: #{request_path}"
 
+      # Root URL
       match = request_path.match(%r{^/$|^/index(\.html)$})
       if match
         return response(200, index, 'text/html')
@@ -113,8 +114,8 @@ module MiniradioServer
     end
   
     def index
-        template = Tilt::SlimTemplate.new("#{__dir__}/templ/index.html.slim")
-        output = template.render(self, :mp3_list => get_mp3_list)
+      template = Tilt::SlimTemplate.new("#{__dir__}/templ/index.html.slim")
+      template.render(self, :mp3_list => get_mp3_list)
     end
 
     private
@@ -308,4 +309,3 @@ module MiniradioServer
     end
   end
 end
-
