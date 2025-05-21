@@ -2,6 +2,7 @@
 require 'rack'
 require 'open3' # Used in convert_to_hls
 require 'tilt/slim'
+require 'mp3info'
 
 # Required to use the handler from Rack 3+
 # You might need to run: gem install rackup
@@ -110,12 +111,24 @@ module MiniradioServer
     end
 
     def get_mp3_list
-      @mp3_dir.glob("*.mp3")
+      r = []
+      @mp3_dir.glob("*.mp3").each do |file|
+        mp3 = {}
+        Mp3Info.open(file) do |mp3info|
+          mp3[:title] = mp3info.tag.title
+          mp3[:artist] = mp3info.tag.artist
+          mp3[:album] = mp3info.tag.album
+          mp3[:file] = file.basename(".mp3")
+        end
+        pp mp3
+        r << mp3
+      end
+      r
     end
   
     def index
-      template = Tilt::SlimTemplate.new("#{__dir__}/templ/index.html.slim")
-      template.render(self, :mp3_list => get_mp3_list)
+        template = Tilt::SlimTemplate.new("#{__dir__}/templ/index.html.slim")
+        template.render(self, :mp3_list => get_mp3_list)
     end
 
     private
@@ -309,3 +322,4 @@ module MiniradioServer
     end
   end
 end
+
