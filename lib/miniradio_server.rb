@@ -78,7 +78,7 @@ if __FILE__ == $PROGRAM_NAME || 'bin/miniradio_server' == $PROGRAM_NAME || 'mini
   begin
     # Use Rackup::Handler::WEBrick, recommended for Rack 3+
     Rackup::Handler::WEBrick.run(
-      app,
+      Rack::Static.new(app, urls: ["/style", "/images"], root: "#{__dir__}/public"),
       Port: MiniradioServer::SERVER_PORT,
       Logger: logger,       # Share logger with WEBrick
       AccessLog: []       # Disable WEBrick's own access log (logging handled by Rack app)
