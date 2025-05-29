@@ -15,9 +15,9 @@ html
                     th Artist
                     th Album
             tbody
-                - mp3_list.each do |file|
+                - mp3_list.each do |mp3|
                     tr
                         td
-                            a> href='/stream/#{file.basename(".mp3")}/playlist.m3u8' #{file.basename}
+                            a> href='/stream/#{mp3[:file]}/playlist.m3u8' #{mp3[:title] || mp3[:file]}
         hr
         p Miniradio ver #{MiniradioServer::VERSION}
