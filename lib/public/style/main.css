@@ -1,0 +1,26 @@
+@charset "utf-8";
+
+table.compact td, table.compact th {
+	padding: 0.4rem 0.5rem;
+	font-size: 0.9rem;
+        line-height: 1.2;
+}
+@media screen and (max-width: 600px) {
+	table thead {
+		display: none;
+	}
+	table tr {
+		display: block;
+       		margin-bottom: 0.8rem;
+	}
+	table td {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.3rem 0;
+		border-bottom: 1px solid #ccc;
+	}
+        table td::before {
+		content: attr(data-label);
+                font-weight: bold;
+	}
+}

@@ -3,11 +3,11 @@
 require "test_helper"
 
 class TestMiniradioServer < Minitest::Test
-  # テスト実行前に一時ディレクトリを作成
+  # Create a temporary directory before running tests
   def setup
     @tmp_dir = File.expand_path('../tmp_test_dirs', __dir__)
     FileUtils.mkdir_p(@tmp_dir)
-    # 定数を一時ディレクトリに向ける (元の値を保持)
+    # Point constants to the temporary directory (keep original values)
     @original_mp3_src_dir = MiniradioServer.send(:remove_const, :MP3_SRC_DIR) if defined?(MiniradioServer::MP3_SRC_DIR)
     @original_hls_cache_dir = MiniradioServer.send(:remove_const, :HLS_CACHE_DIR) if defined?(MiniradioServer::HLS_CACHE_DIR)
     MiniradioServer.const_set(:MP3_SRC_DIR, File.join(@tmp_dir, 'mp3_files'))
@@ -15,10 +15,10 @@ class TestMiniradioServer < Minitest::Test
     @dummy_logger = Logger.new(IO::NULL)
   end
 
-  # テスト実行後に一時ディレクトリを削除し、定数を元に戻す
+  # Delete the temporary directory after running tests and restore constants
   def teardown
     FileUtils.rm_rf(@tmp_dir)
-    # 定数を元に戻す
+    # Restore constants
     MiniradioServer.send(:remove_const, :MP3_SRC_DIR)
     MiniradioServer.send(:remove_const, :HLS_CACHE_DIR)
     MiniradioServer.const_set(:MP3_SRC_DIR, @original_mp3_src_dir) if @original_mp3_src_dir
@@ -30,22 +30,22 @@ class TestMiniradioServer < Minitest::Test
   end
 
   def test_constants_are_defined
-    # 定義されているかは require 時に評価されるため、ここでは再定義後の値を確認
+    # Whether they are defined is evaluated at require time, so here we check the values after redefinition
     assert_equal File.join(@tmp_dir, 'mp3_files'), MiniradioServer::MP3_SRC_DIR
     assert_equal File.join(@tmp_dir, 'hls_cache'), MiniradioServer::HLS_CACHE_DIR
-    # 他の定数は setup/teardown で変更しないので、そのままチェック
+    # Other constants are not changed in setup/teardown, so check them as they are
     assert defined?(MiniradioServer::SERVER_PORT)
     assert defined?(MiniradioServer::FFMPEG_COMMAND)
     assert defined?(MiniradioServer::HLS_SEGMENT_DURATION)
   end
 
   def test_directories_are_created_if_not_exist
-    # ディレクトリが存在しないことを確認
+    # Confirm that the directories do not exist
     refute Dir.exist?(MiniradioServer::MP3_SRC_DIR), "MP3_SRC_DIR should not exist before test"
     refute Dir.exist?(MiniradioServer::HLS_CACHE_DIR), "HLS_CACHE_DIR should not exist before test"
 
-    # リファクタリングされたメソッドを直接呼び出す
-    # テスト中はログ出力を抑制するためにダミーロガーを使用
+    # Call the refactored method directly
+    # Use a dummy logger to suppress log output during tests
     MiniradioServer.ensure_directories_exist(
       [MiniradioServer::MP3_SRC_DIR, MiniradioServer::HLS_CACHE_DIR],
       @dummy_logger
@@ -61,7 +61,7 @@ class TestMiniradioServer < Minitest::Test
       @dummy_logger
     )
 
-    # サンプルmp3をコピー
+    # Copy sample mp3
     FileUtils.cp("#{__dir__}/sample/eine.mp3", File.join(@tmp_dir, 'mp3_files'))
 
     app = MiniradioServer::App.new(
