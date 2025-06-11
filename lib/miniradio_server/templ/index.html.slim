@@ -12,6 +12,7 @@ html
             thead
                 tr
                     th scope="col" #
+                    th scope="col" Play
                     th scope="col" Title
                     th scope="col" Artist
                     th scope="col" Album
@@ -21,7 +22,8 @@ html
                         th scope="row"
                             a> id='song-#{i+1}' href='./#song-#{i+1}' #{i+1}
                         td
-                            a> href='/stream/#{mp3[:file]}/playlist.m3u8' #{mp3[:title] || mp3[:file]}
+                            audio controls='true' src='/stream/#{mp3[:file]}/playlist.m3u8'
+                        td=mp3[:title] || mp3[:file]
                         td=mp3[:artist]
                         td=mp3[:album]
         hr
