@@ -71,6 +71,28 @@ class TestMiniradioServer < Minitest::Test
       MiniradioServer::HLS_SEGMENT_DURATION,
       @dummy_logger
     )
-    assert_equal app.index, "<!DOCTYPE html><html><head><meta charset=\"UTF-8\" /><meta content=\"width=device-width, initial-scale=1.0\" name=\"viewport\" /><title>Miniradio Server</title><link href=\"https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css\" rel=\"stylesheet\" type=\"text/css\" /><link href=\"style/main.css\" rel=\"stylesheet\" type=\"text/css\" /></head><body><h1>Straming List</h1><table class=\"compact striped\"><thead><tr><th scope=\"col\">#</th><th scope=\"col\">Title</th><th scope=\"col\">Artist</th><th scope=\"col\">Album</th></tr></thead><tbody><tr><th scope=\"row\"><a href=\"./#song-1\" id=\"song-1\">1</a> </th><td><a href=\"/stream/eine 01/playlist.m3u8\">eine 01</a> </td><td></td><td></td></tr><tr><th scope=\"row\"><a href=\"./#song-2\" id=\"song-2\">2</a> </th><td><a href=\"/stream/eine/playlist.m3u8\">eine</a> </td><td></td><td></td></tr><tr><th scope=\"row\"><a href=\"./#song-3\" id=\"song-3\">3</a> </th><td><a href=\"/stream/アイネクライネ/playlist.m3u8\">アイネクライネ</a> </td><td></td><td></td></tr></tbody></table><hr /><p>Miniradio ver 0.0.2</p></body></html>"
+    assert_equal app.index, <<EOS.chomp
+<!DOCTYPE html><html><head><meta charset=\"UTF-8\" /><meta content=\"width=device-width, initial-scale=1.0\" name=\"viewport\" /><title>Miniradio Server</title><link href=\"https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css\" rel=\"stylesheet\" type=\"text/css\" /><link href=\"style/main.css\" rel=\"stylesheet\" type=\"text/css\" /><script src=\"https://cdn.jsdelivr.net/npm/hls.js@1\"></script></head><body><h1>Straming List</h1><table class=\"compact striped\"><thead><tr><th scope=\"col\">Play</th><th scope=\"col\">Title</th><th scope=\"col\">Artist</th><th scope=\"col\">Album</th></tr></thead><tbody><tr><td><audio controls=\"\" id=\"audio-1\"></audio></td><td>eine 01</td><td></td><td></td></tr><tr><td><audio controls=\"\" id=\"audio-2\"></audio></td><td>eine</td><td></td><td></td></tr><tr><td><audio controls=\"\" id=\"audio-3\"></audio></td><td>アイネクライネ</td><td></td><td></td></tr></tbody></table><script>function setupHLS(audioElementId, streamUrl) {
+    const audio = document.getElementById(audioElementId);
+
+    if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(streamUrl);
+        hls.attachMedia(audio);
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+            console.log(`${audioElementId} loaded`);
+        });
+    } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
+        // HLS native support browser. ex.Safari
+        audio.src = streamUrl;
+    } else {
+        console.error('This browser cannot play HLS.');
+    }
+}
+var mp3s = [{\"title\":null,\"artist\":null,\"album\":null,\"file\":\"eine 01\"},{\"title\":null,\"artist\":null,\"album\":null,\"file\":\"eine\"},{\"title\":null,\"artist\":null,\"album\":null,\"file\":\"アイネクライネ\"}];
+for (let i = 0; i < mp3s.length; i++) {
+    setupHLS(`audio-${i+1}`, `/stream/${mp3s[i].file}/playlist.m3u8`);
+}</script><hr /><p>Miniradio ver 0.0.3</p></body></html>
+EOS
   end
 end
