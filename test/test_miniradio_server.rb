@@ -62,7 +62,7 @@ class TestMiniradioServer < Minitest::Test
     )
 
     # Copy sample mp3
-    FileUtils.cp("#{__dir__}/sample/eine.mp3", File.join(@tmp_dir, 'mp3_files'))
+    FileUtils.cp(Dir.glob("#{__dir__}/sample/*.mp3"), File.join(@tmp_dir, 'mp3_files'))
 
     app = MiniradioServer::App.new(
       MiniradioServer::MP3_SRC_DIR,
@@ -71,6 +71,6 @@ class TestMiniradioServer < Minitest::Test
       MiniradioServer::HLS_SEGMENT_DURATION,
       @dummy_logger
     )
-    assert_equal app.index, "<!DOCTYPE html><html><body><ul><li><a href=\"/stream/eine/playlist.m3u8\">eine.mp3</a> </li></ul></body></html>"
+    assert_equal app.index, "<!DOCTYPE html><html><head><meta charset=\"UTF-8\" /><meta content=\"width=device-width, initial-scale=1.0\" name=\"viewport\" /><title>Miniradio Server</title><link href=\"https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css\" rel=\"stylesheet\" type=\"text/css\" /><link href=\"style/main.css\" rel=\"stylesheet\" type=\"text/css\" /></head><body><h1>Straming List</h1><table class=\"compact striped\"><thead><tr><th scope=\"col\">#</th><th scope=\"col\">Title</th><th scope=\"col\">Artist</th><th scope=\"col\">Album</th></tr></thead><tbody><tr><th scope=\"row\"><a href=\"./#song-1\" id=\"song-1\">1</a> </th><td><a href=\"/stream/eine 01/playlist.m3u8\">eine 01</a> </td><td></td><td></td></tr><tr><th scope=\"row\"><a href=\"./#song-2\" id=\"song-2\">2</a> </th><td><a href=\"/stream/eine/playlist.m3u8\">eine</a> </td><td></td><td></td></tr><tr><th scope=\"row\"><a href=\"./#song-3\" id=\"song-3\">3</a> </th><td><a href=\"/stream/アイネクライネ/playlist.m3u8\">アイネクライネ</a> </td><td></td><td></td></tr></tbody></table><hr /><p>Miniradio ver 0.0.2</p></body></html>"
   end
 end

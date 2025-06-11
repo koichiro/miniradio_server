@@ -70,7 +70,7 @@ if __FILE__ == $PROGRAM_NAME || 'bin/miniradio_server' == $PROGRAM_NAME || 'mini
   puts "MP3 Source Directory: #{MiniradioServer::MP3_SRC_DIR}"
   puts "HLS Cache Directory: #{MiniradioServer::HLS_CACHE_DIR}"
   puts "Default External Encoding: #{Encoding.default_external}" # For confirmation log
-  puts "Using Handler: Rackup::Handler::WEBrick" # For confirmation log
+  puts "Server URL: http://localhost:9292"
   puts "Example Streaming URL: http://localhost:#{MiniradioServer::SERVER_PORT}/stream/{mp3_filename_without_extension}/playlist.m3u8"
   puts "e.g., If mp3_files/ contains my_music.mp3 -> http://localhost:#{MiniradioServer::SERVER_PORT}/stream/my_music/playlist.m3u8"
   puts "Press Ctrl+C to stop."
