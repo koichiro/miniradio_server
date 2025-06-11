@@ -39,6 +39,10 @@ Press Ctrl+C to stop.
 
 The server will run in the foreground. Press Ctrl+C to stop it.
 
+## Usage: Accessing the Index Page
+
+You can access the index page listing available MP3 files by navigating to `http://localhost:{SERVER_PORT}/` in your web browser.
+
 ## Usage: Accessing Streams
 
 Once the server is running, you can access the HLS streams using an HLS-compatible player (like VLC, QuickTime Player on macOS/iOS, Safari, or web players using hls.js).
@@ -105,10 +109,10 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## ToDo
 
-* Rendering of the Delivered Music list page
 * Continuous playback of multiple Music tracks
-* Multilingual support for file names.
 * Use hls.js to support playback in Chrome.
+* :white_check_mark: ~~Rendering of the Delivered Music list page~~
+* :white_check_mark: ~~Multilingual support for file names.~~
 
 ## Contributing
 
