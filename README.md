@@ -110,7 +110,7 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 ## ToDo
 
 * Continuous playback of multiple Music tracks
-* Use hls.js to support playback in Chrome.
+* :white_check_mark: ~~Use hls.js to support playback in Chrome.~~
 * :white_check_mark: ~~Rendering of the Delivered Music list page~~
 * :white_check_mark: ~~Multilingual support for file names.~~
 
