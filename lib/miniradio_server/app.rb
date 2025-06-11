@@ -40,7 +40,7 @@ module MiniradioServer
         return not_found_response("Not Found (Invalid Path Format)")
       end
 
-      mp3_basename = match[1] # e.g., "your_music" (without extension)
+      mp3_basename = URI.decode_uri_component(match[1]) # e.g., "your_music" (without extension)
       requested_filename = match[2] # e.g., "playlist.m3u8" or "segment001.mp3"
       extension = match[3].downcase # "m3u8" or "mp3"
 
