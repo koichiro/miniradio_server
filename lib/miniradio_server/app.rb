@@ -3,6 +3,7 @@ require 'rack'
 require 'open3' # Used in convert_to_hls
 require 'tilt/slim'
 require 'mp3info'
+require 'json'
 
 # Required to use the handler from Rack 3+
 # You might need to run: gem install rackup
