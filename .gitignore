@@ -8,3 +8,5 @@
 /tmp/
 /mp3_files/
 /hls_cache/
+.DS_Store
+/vendor/

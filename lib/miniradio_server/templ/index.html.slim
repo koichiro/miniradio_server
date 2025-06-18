@@ -9,6 +9,7 @@ html
         script src="https://cdn.jsdelivr.net/npm/hls.js@1"
     body
         h1 Straming List
+        button id="startButton" Play all ▶️
         table.compact.striped
             thead
                 tr
@@ -25,26 +26,66 @@ html
                         td=mp3[:artist]
                         td=mp3[:album]
         javascript:
-            function setupHLS(audioElementId, streamUrl) {
-                const audio = document.getElementById(audioElementId);
-
-                if (Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(streamUrl);
-                    hls.attachMedia(audio);
-                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                        console.log(`${audioElementId} loaded`);
-                    });
-                } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
-                    // HLS native support browser. ex.Safari
-                    audio.src = streamUrl;
-                } else {
-                    console.error('This browser cannot play HLS.');
-                }
-            }
-            var mp3s = #{{JSON.generate(mp3_list)}};
+            const mp3s = #{{JSON.generate(mp3_list)}};
+            const audioConfigs = [];
             for (let i = 0; i < mp3s.length; i++) {
-                setupHLS(`audio-${i+1}`, `/stream/${mp3s[i].file}/playlist.m3u8`);
+                audioConfigs.push({ id: `audio-${i+1}`, url: `/stream/${mp3s[i].file}/playlist.m3u8`});
             }
+            const audioElements = [];
+            let currentIndex = 0;
+
+            function setupAudio(audioConfig, index) {
+                const el = document.getElementById(audioConfig.id);
+                audioElements.push(el);
+
+                // Safari: Native HLS Support
+                if (el.canPlayType('application/vnd.apple.mpegurl')) {
+                    el.dataset.hlsSrc = audioConfig.url;
+
+                    // Safari sets src on playback
+                    el.addEventListener('play', () => {
+                        if (!el.src) {
+                            el.src = el.dataset.hlsSrc;
+                        }
+                    });
+                } else if (Hls.isSupported()) {
+                    // Chrome, etc.: use Hls.js (attach before playback)
+                    el.dataset.hlsSrc = audioConfig.url;
+                }
+
+                // Play next audio when playback ends
+                el.addEventListener('ended', () => {
+                    currentIndex++;
+                    if (currentIndex < audioElements.length) {
+                        playAudio(currentIndex);
+                    } else {
+                        console.log("All audio playback has been completed.");
+                    }
+                });
+            }
+            function playAudio(index) {
+                const el = audioElements[index];
+
+                if (!el) return;
+
+                if (!el.canPlayType('application/vnd.apple.mpegurl') && Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(el.dataset.hlsSrc);
+                    hls.attachMedia(el);
+                }
+
+                el.play().catch(err => {
+                    console.warn(`Playback of song-$(index + 1) was blocked:`)
+                });
+            }
+
+            audioConfigs.forEach((config, index) => {
+                setupAudio(config, index);
+            })
+
+            document.getElementById('startButton').addEventListener('click', () => {
+                playAudio(0);
+                document.getElementById('startButton').style.display = 'none';
+            });
         hr
         p Miniradio ver #{MiniradioServer::VERSION}
