@@ -10,7 +10,9 @@ html
     body
         h1 Straming List
         button id="startButton" Play all ▶️
-        table.compact.striped
+        audio id="player" class="hidden" controles=true
+
+        table.compact.striped id="playlistTable"
             thead
                 tr
                     th scope="col" Play
@@ -18,74 +20,64 @@ html
                     th scope="col" Artist
                     th scope="col" Album
             tbody
-                - mp3_list.each_with_index do |mp3, i|
-                    tr
-                        td
-                            audio controls=true id='audio-#{i+1}'
-                        td=mp3[:title] || mp3[:file]
-                        td=mp3[:artist]
-                        td=mp3[:album]
+
         javascript:
-            const mp3s = #{{JSON.generate(mp3_list)}};
-            const audioConfigs = [];
-            for (let i = 0; i < mp3s.length; i++) {
-                audioConfigs.push({ id: `audio-${i+1}`, url: `/stream/${mp3s[i].file}/playlist.m3u8`});
-            }
-            const audioElements = [];
+            const tracks = #{{JSON.generate(mp3_list)}};
+            const tableBody = document.querySelector("#playlistTable tbody");
+            const startButton = document.getElementById("startButton");
+            const player = document.getElementById("player");
+
             let currentIndex = 0;
+            let hls;
 
-            function setupAudio(audioConfig, index) {
-                const el = document.getElementById(audioConfig.id);
-                audioElements.push(el);
+            tracks.forEach((track, index) => {
+                const tr = document.createElement('tr');
+                tr.dataset.index = index;
+                tr.innerHTML = `<td>${index + 1}</td><td>${track.title || track.file}</td><td>${track.artist || ''}</td><td>${track.album || ''}</td>`;
+                tr.addEventListener('click', () => {
+                    playTrack(index);
+                });
+                tableBody.appendChild(tr);
+            });
 
-                // Safari: Native HLS Support
-                if (el.canPlayType('application/vnd.apple.mpegurl')) {
-                    el.dataset.hlsSrc = audioConfig.url;
+            function highlightTrack(index) {
+                [...tableBody.children].forEach((row, i) => {
+                    row.classList.toggle('active', i === index);
+                });
+            }
 
-                    // Safari sets src on playback
-                    el.addEventListener('play', () => {
-                        if (!el.src) {
-                            el.src = el.dataset.hlsSrc;
-                        }
-                    });
+            function playTrack(index) {
+                const track = tracks[index];
+                if (!track) return;
+
+                currentIndex = index;
+                highlightTrack(index);
+
+                // for Safari
+                if (player.canPlayType('application/vnd.apple.mpegurl')) {
+                    player.src = track.url;
+                    player.load();
+                    player.play();
                 } else if (Hls.isSupported()) {
-                    // Chrome, etc.: use Hls.js (attach before playback)
-                    el.dataset.hlsSrc = audioConfig.url;
+                    if (hls) hls.destroy();
+                    hls = new Hls();
+                    hls.loadSource(track.url);
+                    hls.attachMedia(player);
+                    player.play();
                 }
-
-                // Play next audio when playback ends
-                el.addEventListener('ended', () => {
-                    currentIndex++;
-                    if (currentIndex < audioElements.length) {
-                        playAudio(currentIndex);
-                    } else {
-                        console.log("All audio playback has been completed.");
-                    }
-                });
-            }
-            function playAudio(index) {
-                const el = audioElements[index];
-
-                if (!el) return;
-
-                if (!el.canPlayType('application/vnd.apple.mpegurl') && Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(el.dataset.hlsSrc);
-                    hls.attachMedia(el);
-                }
-
-                el.play().catch(err => {
-                    console.warn(`Playback of song-$(index + 1) was blocked:`)
-                });
             }
 
-            audioConfigs.forEach((config, index) => {
-                setupAudio(config, index);
-            })
+            player.addEventListener('ended', () => {
+                if (currentIndex + 1 < tracks.length) {
+                    playTrack(currentIndex + 1);
+                } else {
+                    highlightTrack(-1); // 再生完了
+                }
+            });
 
-            document.getElementById('startButton').addEventListener('click', () => {
-                playAudio(0);
-                document.getElementById('startButton').style.display = 'none';
+            startButton.addEventListener('click', () => {
+                playTrack(0);
+                startButton.style.display = 'none';
             });
         hr
         p Miniradio ver #{MiniradioServer::VERSION}
