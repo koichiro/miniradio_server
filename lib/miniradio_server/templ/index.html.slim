@@ -9,7 +9,10 @@ html
         script src="https://cdn.jsdelivr.net/npm/hls.js@1"
     body
         h1 Straming List
-        table.compact.striped
+        button id="startButton" Play all ▶️
+        audio id="player" class="hidden" controles=true
+
+        table.compact.striped id="playlistTable"
             thead
                 tr
                     th scope="col" Play
@@ -17,34 +20,64 @@ html
                     th scope="col" Artist
                     th scope="col" Album
             tbody
-                - mp3_list.each_with_index do |mp3, i|
-                    tr
-                        td
-                            audio controls=true id='audio-#{i+1}'
-                        td=mp3[:title] || mp3[:file]
-                        td=mp3[:artist]
-                        td=mp3[:album]
-        javascript:
-            function setupHLS(audioElementId, streamUrl) {
-                const audio = document.getElementById(audioElementId);
 
-                if (Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(streamUrl);
-                    hls.attachMedia(audio);
-                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                        console.log(`${audioElementId} loaded`);
-                    });
-                } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
-                    // HLS native support browser. ex.Safari
-                    audio.src = streamUrl;
-                } else {
-                    console.error('This browser cannot play HLS.');
+        javascript:
+            const tracks = #{{JSON.generate(mp3_list)}};
+            const tableBody = document.querySelector("#playlistTable tbody");
+            const startButton = document.getElementById("startButton");
+            const player = document.getElementById("player");
+
+            let currentIndex = 0;
+            let hls;
+
+            tracks.forEach((track, index) => {
+                const tr = document.createElement('tr');
+                tr.dataset.index = index;
+                tr.innerHTML = `<td>${index + 1}</td><td>${track.title || track.file}</td><td>${track.artist || ''}</td><td>${track.album || ''}</td>`;
+                tr.addEventListener('click', () => {
+                    playTrack(index);
+                });
+                tableBody.appendChild(tr);
+            });
+
+            function highlightTrack(index) {
+                [...tableBody.children].forEach((row, i) => {
+                    row.classList.toggle('active', i === index);
+                });
+            }
+
+            function playTrack(index) {
+                const track = tracks[index];
+                if (!track) return;
+
+                currentIndex = index;
+                highlightTrack(index);
+
+                // for Safari
+                if (player.canPlayType('application/vnd.apple.mpegurl')) {
+                    player.src = track.url;
+                    player.load();
+                    player.play();
+                } else if (Hls.isSupported()) {
+                    if (hls) hls.destroy();
+                    hls = new Hls();
+                    hls.loadSource(track.url);
+                    hls.attachMedia(player);
+                    player.play();
                 }
             }
-            var mp3s = #{{JSON.generate(mp3_list)}};
-            for (let i = 0; i < mp3s.length; i++) {
-                setupHLS(`audio-${i+1}`, `/stream/${mp3s[i].file}/playlist.m3u8`);
-            }
+
+            player.addEventListener('ended', () => {
+                if (currentIndex + 1 < tracks.length) {
+                    playTrack(currentIndex + 1);
+                } else {
+                    highlightTrack(-1); // 再生完了
+                }
+            });
+
+            startButton.addEventListener('click', () => {
+                playTrack(0);
+                startButton.style.display = 'none';
+            });
         hr
         p Miniradio ver #{MiniradioServer::VERSION}

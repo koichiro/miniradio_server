@@ -120,6 +120,7 @@ module MiniradioServer
           mp3[:artist] = mp3info.tag.artist
           mp3[:album] = mp3info.tag.album
           mp3[:file] = file.basename(".mp3")
+          mp3[:url] = "/stream/#{mp3[:file]}/playlist.m3u8"
         end
         r << mp3
       end
