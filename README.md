@@ -10,7 +10,8 @@ shuffle. Safari uses native HLS; other compatible browsers use hls.js.
 
 ## Requirements
 
-- Ruby 3.1 or later. CI covers Ruby 3.1, 3.4, and 4.0.
+- Ruby 3.4 or later. The repository uses Ruby **4.0.7** via `.ruby-version`;
+  CI also checks the supported minimum Ruby 3.4 series.
 - FFmpeg on `PATH` (`brew install ffmpeg` or `apt install ffmpeg`).
 - Internet access for the web player's Pico CSS and hls.js CDN assets.
 - Node.js 18 or later for player development tests; not needed to run the server.
@@ -90,14 +91,27 @@ bundle exec exe/miniradio_server --help
 ```
 
 ```sh
-bundle exec rake test         # Ruby, Rack, cache, CLI, and packaging tests
+bundle exec rake lint         # Standard Ruby style checks
+bundle exec standardrb --fix  # Apply Standard's automatic formatting
+bundle exec rake test         # Ruby tests and the 90% coverage gate
 bundle exec rake test_player  # Player logic tests using Node.js
-bundle exec rake check        # Both suites
+bundle exec rake check        # Lint and both test suites (also the default rake task)
 bundle exec rake build        # Build pkg/miniradio_server-0.0.4.gem
 ```
 
 The Ruby suite runs real HLS conversion tests when FFmpeg is installed, and
 skips those tests otherwise. CI installs FFmpeg so conversion tests always run.
+Standard checks Ruby source, tests, executables, and project configuration using
+Ruby 3.4 syntax as the supported minimum; no style violations are grandfathered.
+SimpleCov measures Ruby **line coverage** and fails the test command if the
+overall coverage or any measured source file falls below **90%**. All runtime
+Ruby files under `lib/` are tracked, including files not loaded by tests; only
+the declarative `version.rb` metadata loaded by Bundler before instrumentation
+is excluded. Reports contain the current run only, without merging earlier runs.
+Open `coverage/index.html` for the HTML report or read `coverage/coverage.json`
+for machine-readable results. GitHub Actions runs the same lint/coverage checks
+on Ruby 3.4 and 4.0.7 and uploads each coverage report as an artifact, including
+when tests or the coverage threshold fail.
 Player tests cover control behavior and native/HLS.js readiness using simulated
 DOM/media APIs. Before releasing, also check actual playback in Safari and
 Chrome: initial play, rapid track changes, next-track autoplay, pause/resume,

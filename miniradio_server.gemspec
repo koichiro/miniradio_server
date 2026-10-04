@@ -9,22 +9,22 @@ Gem::Specification.new do |spec|
   spec.email = ["koichiro.ohba@gmail.com"]
 
   spec.summary = "Miniradio Server is Simple Ruby HLS Server for MP3s."
-  spec.description =<<-EOS
+  spec.description = <<-EOS
     This is a basic HTTP Live Streaming (HLS) server written in Ruby using the Rack interface. It serves MP3 audio files by converting them on-the-fly into HLS format (M3U8 playlist and MP3 segment files) using `ffmpeg`. Converted files are cached for subsequent requests.
     This server is designed for simplicity and primarily targets Video on Demand (VOD) scenarios where you want to stream existing MP3 files via HLS without pre-converting them.
   EOS
   spec.homepage = "https://github.com/koichiro/miniradio_server"
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 3.1.0"
+  spec.required_ruby_version = ">= 3.4.0"
 
-  #spec.metadata["allowed_push_host"] = "Set to your gem server 'https://example.com'"
+  # spec.metadata["allowed_push_host"] = "Set to your gem server 'https://example.com'"
 
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = "https://github.com/koichiro/miniradio_server.git"
   # spec.metadata["changelog_uri"] = "Put your gem's CHANGELOG.md URL here."
 
   # Package runtime files even when building from a source archive without Git.
-  spec.files = Dir.chdir(__dir__) { Dir['lib/**/*', 'exe/*', 'README.md', 'LICENSE.txt'].select { |path| File.file?(path) } }
+  spec.files = Dir.chdir(__dir__) { Dir["lib/**/*", "exe/*", "README.md", "LICENSE.txt"].select { |path| File.file?(path) } }
   spec.bindir = "exe"
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
@@ -34,6 +34,8 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "irb"
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "minitest", "~> 5.16"
+  spec.add_development_dependency "standard", "~> 1.0"
+  spec.add_development_dependency "simplecov", "~> 0.22"
 
   spec.add_dependency "rack", ">= 3.1", "< 4"
   spec.add_dependency "rackup", "~> 2.2"
