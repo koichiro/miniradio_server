@@ -13,6 +13,14 @@ task :test_player do
   sh "node", "--test", "test/player_test.js"
 end
 
+desc "Build and verify the installed gem outside the checkout"
+task smoke_gem: :build do
+  dependency_paths = Bundler.load.specs.reject { |spec| spec.name == "miniradio_server" }.map(&:base_dir).uniq.join(File::PATH_SEPARATOR)
+  Bundler.with_unbundled_env do
+    sh({"GEM_PATH" => dependency_paths}, Gem.ruby, "test/gem_smoke.rb", "pkg/miniradio_server-#{MiniradioServer::VERSION}.gem")
+  end
+end
+
 desc "Check Ruby style with Standard"
 task lint: :standard
 
