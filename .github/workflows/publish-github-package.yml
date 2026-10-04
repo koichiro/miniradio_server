@@ -1,0 +1,54 @@
+name: Publish GitHub Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to publish
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-github-package-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0.7'
+          bundler-cache: true
+      - name: Download and verify the published release artifact
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${RELEASE_TAG#v}"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "miniradio_server-$version.gem" --pattern SHA256SUMS.txt --dir pkg/release
+          (cd pkg/release && sha256sum --check SHA256SUMS.txt)
+          echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
+      - name: Build the GitHub Packages variant
+        run: ruby script/build_github_package.rb "pkg/release/miniradio_server-$PACKAGE_VERSION.gem" "pkg/github/miniradio_server-$PACKAGE_VERSION.gem"
+      - name: Verify the installed GitHub Packages artifact
+        run: bundle exec rake "verify_gem[pkg/github/miniradio_server-$PACKAGE_VERSION.gem]"
+      - name: Publish to GitHub Packages
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export GEM_HOST_API_KEY="Bearer $GITHUB_PACKAGES_TOKEN"
+          gem push "pkg/github/miniradio_server-$PACKAGE_VERSION.gem" --host https://rubygems.pkg.github.com/koichiro
+      - name: Report the published package
+        run: |
+          echo "Published miniradio_server $PACKAGE_VERSION from $RELEASE_TAG." >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/users/koichiro/packages/rubygems/package/miniradio_server" >> "$GITHUB_STEP_SUMMARY"

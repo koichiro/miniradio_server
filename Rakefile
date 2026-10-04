@@ -15,9 +15,15 @@ end
 
 desc "Build and verify the installed gem outside the checkout"
 task smoke_gem: :build do
+  Rake::Task[:verify_gem].invoke("pkg/miniradio_server-#{MiniradioServer::VERSION}.gem")
+end
+
+desc "Verify a specified gem artifact outside the checkout"
+task :verify_gem, [:package] do |_, args|
+  abort "Usage: rake verify_gem[path/to/package.gem]" unless args[:package]
   dependency_paths = Bundler.load.specs.reject { |spec| spec.name == "miniradio_server" }.map(&:base_dir).uniq.join(File::PATH_SEPARATOR)
   Bundler.with_unbundled_env do
-    sh({"GEM_PATH" => dependency_paths}, Gem.ruby, "test/gem_smoke.rb", "pkg/miniradio_server-#{MiniradioServer::VERSION}.gem")
+    sh({"GEM_PATH" => dependency_paths}, Gem.ruby, "test/gem_smoke.rb", args[:package])
   end
 end
 

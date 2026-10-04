@@ -198,9 +198,38 @@ to the Git remote, and publishes to RubyGems. The gemspec restricts publishing
 to `https://rubygems.org`. Building, running the smoke check, and opening the PR
 do not publish a gem. After publishing, create a GitHub release for the tag with
 release notes, the built `.gem` artifact, and its SHA256 checksum. GitHub
-Packages is a separate registry; gems published to RubyGems.org appear through
-the links and badges above, rather than in the repository's Packages sidebar.
+Packages is a separate registry; publish the GitHub Packages variant using the
+workflow below to display it in the repository's Packages sidebar.
 See [CHANGELOG.md](CHANGELOG.md) for the release contents.
+
+## GitHub Packages
+
+The gem is also distributed through the
+[GitHub Packages registry](https://github.com/users/koichiro/packages/rubygems/package/miniradio_server).
+RubyGems.org remains the simplest install source and requires no GitHub token.
+GitHub Packages requires authentication even when the package is public. Use a
+GitHub personal access token (classic) with `read:packages`, and configure
+Bundler's credentials locally according to the
+[GitHub documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-rubygems-registry).
+In a consuming project's Gemfile:
+
+```ruby
+source "https://rubygems.org"
+source "https://rubygems.pkg.github.com/koichiro" do
+  gem "miniradio_server", "0.1.0"
+end
+```
+
+Maintainers can run the **Publish GitHub Packages** workflow manually from
+GitHub Actions with an existing release tag, for example `v0.1.0`. It downloads
+the release's gem and `SHA256SUMS.txt`, checks the checksum, and creates a registry
+variant with `allowed_push_host` and `github_repo` metadata. All packaged files
+are verified to match the original release exactly. The installed variant is
+checked before publishing with the workflow's `GITHUB_TOKEN`; no additional
+publishing secret is needed. The variant has a different archive checksum
+because its registry metadata differs. The RubyGems.org artifact remains
+unchanged. When first published, check the package's visibility in GitHub
+Packages settings and set it to public for public distribution.
 
 ## Dependency security
 
