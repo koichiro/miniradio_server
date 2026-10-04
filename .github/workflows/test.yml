@@ -41,9 +41,4 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Build and install the gem
-        run: |
-          bundle exec rake build
-          gem install pkg/miniradio_server-*.gem --no-document
-          cd "$(mktemp -d)"
-          miniradio_server --version
-          miniradio_server --help
+        run: bundle exec rake smoke_gem

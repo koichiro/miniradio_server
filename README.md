@@ -19,7 +19,7 @@ shuffle. All compatible browsers, including Safari, use hls.js for HLS playback.
 ## Install and run
 
 ```sh
-gem install miniradio_server
+gem install miniradio_server -v 0.1.0
 mkdir -p mp3_files
 # Copy your .mp3 files into mp3_files, then:
 miniradio_server
@@ -30,9 +30,9 @@ startup in the current working directory. Spaces, Japanese text, and other
 non-ASCII filenames are supported; generated stream links are URL-encoded.
 Only `.mp3` files directly inside the source directory are listed.
 
-The packaged command and options described here are available in the upcoming
-0.0.4 release. The currently published 0.0.3 gem predates these changes; use the
-source checkout below to run this development version.
+These instructions target version **0.1.0**. Until it is published to RubyGems,
+build and install it from the source checkout using the release preparation
+commands below.
 
 ```sh
 miniradio_server --mp3-dir /path/to/music --cache-dir /path/to/cache --port 9393
@@ -131,7 +131,8 @@ bundle exec rake test         # Ruby tests and the 90% coverage gate
 bundle exec rake test_player  # Player logic tests using Node.js
 bundle exec rake check        # Lint and both test suites (also the default rake task)
 bundle exec rake audit        # Update the advisory database and audit locked gems
-bundle exec rake build        # Build pkg/miniradio_server-0.0.4.gem
+bundle exec rake build        # Build pkg/miniradio_server-0.1.0.gem
+bundle exec rake smoke_gem    # Build/install in a temporary directory and check CLI/assets
 ```
 
 The Ruby suite runs real HLS conversion tests when FFmpeg is installed, and
@@ -154,11 +155,42 @@ repeat, shuffle, seeking, and empty libraries. Include Japanese filenames and
 check macOS Safari and iOS/iPadOS Safari on actual devices; simulated player
 tests do not verify decoding or browser autoplay policies.
 
-For a local installed-gem check, run `gem install pkg/miniradio_server-0.0.4.gem`
-and invoke `miniradio_server --version` from outside the checkout. To release,
-review the version in `lib/miniradio_server/version.rb`, complete the browser
-checks, and use `bundle exec rake release`. Release pushes commits/tags and
-publishes to RubyGems; it is a separate action from building or opening a PR.
+## Release 0.1.0
+
+Prepare and verify the release artifact:
+
+```sh
+bundle install
+bundle exec rake check
+bundle exec rake audit
+bundle exec rake smoke_gem
+# Install the built artifact for local use:
+gem install ./pkg/miniradio_server-0.1.0.gem --no-document
+miniradio_server --version  # 0.1.0
+```
+
+The smoke check installs only the built gem into a temporary gem home, using
+runtime dependencies already installed by Bundler. It runs outside the checkout
+and checks the command, version, help, rendered page, JavaScript, and CSS.
+It does not start a listening HTTP server. The package includes runtime files,
+README, changelog, and license; tests, sample MP3s, and local caches are excluded.
+FFmpeg is an external requirement and is not bundled in the gem.
+
+After merging the release PR, complete the browser checks described above and
+run the following from an up-to-date, clean `main` checkout with GitHub push
+access and RubyGems publishing credentials for `miniradio_server`:
+
+```sh
+git switch main
+git pull --ff-only
+bundle install
+bundle exec rake release
+```
+
+Bundler's release task builds the gem, creates the `v0.1.0` Git tag, pushes it
+to the Git remote, and publishes to RubyGems. The gemspec restricts publishing
+to `https://rubygems.org`. Building, running the smoke check, and opening the PR
+do not publish a gem. See [CHANGELOG.md](CHANGELOG.md) for the release contents.
 
 ## Dependency security
 

@@ -347,7 +347,7 @@ class TestMiniradioServer < Minitest::Test
   def test_gem_packages_executable_templates_and_assets
     spec = Gem::Specification.load(File.expand_path("../miniradio_server.gemspec", __dir__))
     assert_equal ["miniradio_server"], spec.executables
-    %w[exe/miniradio_server lib/miniradio_server/cli.rb lib/miniradio_server/templ/index.html.slim lib/public/player.js lib/public/style/main.css].each do |path|
+    %w[exe/miniradio_server lib/miniradio_server/cli.rb lib/miniradio_server/templ/index.html.slim lib/public/player.js lib/public/style/main.css README.md CHANGELOG.md LICENSE.txt].each do |path|
       assert_includes spec.files, path
     end
     refute spec.files.any? { |path| path.start_with?("test/", "bin/") }
