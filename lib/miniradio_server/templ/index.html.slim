@@ -1,149 +1,37 @@
 doctype html
-html
+html lang="en"
     head
         meta charset="UTF-8"
         meta name="viewport" content="width=device-width, initial-scale=1.0"
         title Miniradio Server
         link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" type="text/css"
-        link rel="stylesheet" href="style/main.css" type="text/css"
-        script src="https://cdn.jsdelivr.net/npm/hls.js@1"
+        link rel="stylesheet" href="/style/main.css" type="text/css"
+        script src="https://cdn.jsdelivr.net/npm/hls.js@1" defer=true
+        script src="/player.js" defer=true
     body
-        h1 Straming List
-        div id="currentTrack" Now Playing : None
-        div.controls
-            button id="startButton" ▶️Play all
-            button id="playPauseButton" ⏯️Stop/Restart
-            button id="prevButton" ⏮️Prev
-            button id="nextButton" ⏭️Next
-            button id="loopButton" 🔁Loop: OFF
-            button id="shuffleButton" 🔀Shuffle: OFF
-
-        audio id="player" class="hidden" controles=true
-
-        table.compact.striped id="playlistTable"
-            thead
-                tr
-                    th scope="col" Play
-                    th scope="col" Title
-                    th scope="col" Artist
-                    th scope="col" Album
-            tbody
-
-        javascript:
-            const tracks = #{{JSON.generate(mp3_list)}};
-
-            let currentIndex = 0;
-            let isLooping = false;
-            let isShuffling = false;
-            let hls;
-
-            const tableBody = document.querySelector("#playlistTable tbody");
-            const player = document.getElementById("player");
-            const currentTrackEl = document.getElementById("currentTrack");
-
-            const startButton = document.getElementById("startButton");
-            const playPauseButton = document.getElementById("playPauseButton");
-            const prevButton = document.getElementById("prevButton");
-            const nextButton = document.getElementById("nextButton");
-            const loopButton = document.getElementById("loopButton");
-            const shuffleButton = document.getElementById("shuffleButton");
-
-            function updateTrackName() {
-                currentTrackEl.textContent = `Now Playing: ${tracks[currentIndex]?.title || tracks[currentIndex]?.file || 'None'}`
-            }
-
-            function highlightTrack(index) {
-                if (!Number.isInteger(index) || index < 0 || index >= tracks.length) return;
-                    [...tableBody.children].forEach((row, i) => {
-                    row.classList.toggle('active', i === index);
-                });
-            }
-
-            function playTrack(index) {
-                const track = tracks[index];
-                if (!track) return;
-
-                currentIndex = index;
-                highlightTrack(index);
-                updateTrackName();
-
-                // for Safari
-                if (Hls.isSupported()) {
-                    if (hls) hls.destroy();
-                    hls = new Hls();
-                    hls.loadSource(track.url);
-                    hls.attachMedia(player);
-                    player.play().catch(err => console.warn("HLS.js Play error:", err));
-                } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
-                    player.src = track.url;
-                    player.load();
-                    player.addEventListener('canplay', function onCanPlay() {
-                        player.removeEventListener('canplay', onCanPlay);
-                        player.play().catch(err => console.warn("Safari Play error:", err));
-                    });
-                }
-                playPauseButton.disabled = false;
-                prevButton.disabled = false;
-                nextButton.disabled = false;
-            }
-
-            function nextTrack() {
-                if (isShuffling) {
-                    const randomIndex = Math.floor(Math.random() * tracks.length);
-                    playTrack(randomIndex);
-                } else {
-                    const next = (currentIndex + 1) % tracks.length;
-                    if (!isLooping && next === 0) return;
-                    playTrack(next);
-                }
-            }
-
-            function prevTrack() {
-                const prev = (currentIndex - 1 + tracks.length) % tracks.length;
-                playTrack(prev);
-            }
-
-            player.addEventListener('ended', () => {
-                if (isLooping) {
-                    playTrack(currentIndex);
-                } else {
-                    nextTrack();
-                }
-            });
-
-            startButton.addEventListener('click', () => {
-                playTrack(0);
-                startButton.disabled = true;
-            });
-
-            playPauseButton.addEventListener('click', () => {
-                if (player.paused) {
-                    player.play();
-                } else {
-                    player.pause();
-                }
-            });
-
-            nextButton.addEventListener('click', nextTrack);
-            prevButton.addEventListener('click', prevTrack);
-
-            loopButton.addEventListener('click', () => {
-                isLooping = !isLooping;
-                loopButton.textContent = `🔁Loop: ${isLooping ? "ON" : "OFF"}`
-            });
-
-            shuffleButton.addEventListener('click', () => {
-                isShuffling = !isShuffling;
-                shuffleButton.textContent = `🔀Shuffle: ${isShuffling ? "ON" : "OFF"}`
-            })
-
-            // Generate Table
-            tracks.forEach((track, index) => {
-                const tr = document.createElement('tr');
-                tr.dataset.index = index;
-                tr.innerHTML = `<td>${index + 1}</td><td>${track.title || track.file}</td><td>${track.artist || ''}</td><td>${track.album || ''}</td>`;
-                tr.addEventListener('click', () => playTrack(index));
-                tableBody.appendChild(tr);
-            });
-        hr
-        p Miniradio ver #{MiniradioServer::VERSION}
+        header.container
+            h1 Streaming List
+            div id="currentTrack" aria-live="polite" Now Playing: None
+            p id="playerStatus" role="status"
+        main.container
+            div.controls role="group" aria-label="Playback controls"
+                button id="startButton" ▶️ Play all
+                button id="playPauseButton" disabled=true ⏯️ Play/Pause
+                button id="prevButton" disabled=true ⏮️ Previous
+                button id="nextButton" disabled=true ⏭️ Next
+                button id="loopButton" aria-pressed="false" 🔁 Repeat track: OFF
+                button id="shuffleButton" aria-pressed="false" 🔀 Shuffle: OFF
+            audio id="player" controls=true preload="none"
+            table.compact.striped id="playlistTable"
+                thead
+                    tr
+                        th scope="col" Play
+                        th scope="col" Title
+                        th scope="col" Artist
+                        th scope="col" Album
+                tbody
+            script id="tracks" type="application/json"
+                == tracks_json
+        footer.container
+            hr
+            p Miniradio ver #{MiniradioServer::VERSION}

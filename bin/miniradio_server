@@ -2,5 +2,4 @@
 # frozen_string_literal: true
 
 require "bundler/setup"
-require "miniradio_server"
-
+load File.expand_path('../exe/miniradio_server', __dir__)

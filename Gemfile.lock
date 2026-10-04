@@ -5,7 +5,8 @@ PATH
       logger
       mp3info
       open3
-      rackup
+      rack (>= 3.1, < 4)
+      rackup (~> 2.2)
       slim
       tilt
       webrick
@@ -20,7 +21,7 @@ GEM
       rdoc (>= 4.0.0)
       reline (>= 0.4.2)
     logger (1.7.0)
-    minitest (5.25.5)
+    minitest (5.27.0)
     mp3info (0.8.5)
       ruby-mp3info (>= 0.8.5)
     open3 (0.2.1)
@@ -30,7 +31,7 @@ GEM
     psych (5.2.3)
       date
       stringio
-    rack (3.1.13)
+    rack (3.1.22)
     rackup (2.2.1)
       rack (>= 3)
     rake (13.2.1)
