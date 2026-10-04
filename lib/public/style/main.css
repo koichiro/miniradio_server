@@ -1,30 +1,60 @@
 @charset "utf-8";
 
+[hidden] { display: none !important; }
 #player { width: 100%; }
-.controls { flex-wrap: wrap; }
-tr.active { outline: 2px solid var(--pico-primary); }
-
-table.compact td, table.compact th {
-	padding: 0.4rem 0.5rem;
-	font-size: 0.9rem;
-        line-height: 1.2;
+.now-playing {
+    background: var(--pico-card-background-color);
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: var(--pico-border-radius);
+    padding: 1.25rem;
 }
+.track-details { display: grid; grid-template-columns: 144px minmax(0, 1fr); gap: 1.5rem; align-items: center; }
+.artwork { width: 144px; aspect-ratio: 1; background: var(--pico-background-color); border-radius: var(--pico-border-radius); overflow: hidden; }
+.artwork img { width: 100%; height: 100%; object-fit: contain; }
+#artworkPlaceholder { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--pico-muted-color); }
+#artworkPlaceholder span { font-size: 2.5rem; }
+#artworkPlaceholder small { font-size: 0.65rem; }
+.track-metadata { min-width: 0; overflow-wrap: anywhere; }
+.track-metadata h2 { margin: 0.4rem 0; }
+.track-metadata p { margin: 0; }
+#playbackState { color: var(--pico-primary); font-size: 0.8rem; }
+#currentArtist, #currentAlbum { color: var(--pico-muted-color); }
+#currentAlbum { font-size: 0.85rem; }
+.time-labels { display: flex; justify-content: space-between; margin-top: 1rem; color: var(--pico-muted-color); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+#seekControl { width: 100%; margin: 0; min-height: 44px; }
+.transport, .playback-options, .volume { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.transport button, .playback-options button, .volume button { width: auto; min-height: 44px; margin: 0; padding: 0.5rem 0.75rem; }
+.transport button:not(#playPauseButton), .playback-options button { --pico-background-color: transparent; --pico-color: var(--pico-primary); }
+#playPauseButton { min-width: 7rem; }
+.volume { margin-left: auto; font-size: 0.8rem; }
+.volume label { margin: 0; }
+#volumeControl { width: 90px; margin: 0; min-height: 44px; }
+.playback-options { border-top: 1px solid var(--pico-muted-border-color); padding-top: 1rem; margin-top: 1rem; font-size: 0.8rem; }
+.playback-options button[aria-pressed="true"] { background: var(--pico-primary); color: var(--pico-primary-inverse); }
+#playerStatus { margin: 1rem 0 0; font-size: 0.85rem; overflow-wrap: anywhere; }
+#playerStatus:empty { margin: 0; }
+.playlist-heading { margin-top: 1.5rem; }
+tr.active { outline: 2px solid var(--pico-primary); outline-offset: -2px; }
+.track-status { color: var(--pico-primary); }
+table.compact td, table.compact th { padding: 0.4rem 0.5rem; font-size: 0.9rem; line-height: 1.2; overflow-wrap: anywhere; }
+table.compact { table-layout: fixed; }
+table.compact th:first-child { width: 4rem; }
+table.compact button { margin: 0; min-width: 44px; min-height: 44px; padding: 0.4rem; }
 @media screen and (max-width: 600px) {
-	table thead {
-		display: none;
-	}
-	table tr {
-		display: block;
-       		margin-bottom: 0.8rem;
-	}
-	table td {
-		display: flex;
-		justify-content: space-between;
-		padding: 0.3rem 0;
-		border-bottom: 1px solid #ccc;
-	}
-        table td::before {
-		content: attr(data-label);
-                font-weight: bold;
-	}
+    .now-playing { padding: 0.8rem; }
+    .track-details { grid-template-columns: 80px minmax(0, 1fr); gap: 0.8rem; }
+    .artwork { width: 80px; }
+    #artworkPlaceholder small { display: none; }
+    .track-metadata h2 { font-size: 1.2rem; }
+    .transport { gap: 0.4rem; }
+    .transport > button { flex: 1; padding: 0.4rem; font-size: 0.8rem; }
+    #playPauseButton { min-width: 0; }
+    .volume { margin-left: 0; width: 100%; }
+    #volumeControl { flex: 1; min-width: 0; }
+    table thead { display: none; }
+    table tr { display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 0.75rem; margin-bottom: 0.8rem; padding: 0.6rem; }
+    table td { display: block; grid-column: 2; padding: 0.15rem 0; border: none; }
+    table td:first-child { grid-column: 1; grid-row: 1 / span 5; align-self: center; }
+    table td[data-label="Artist"], table td[data-label="Album"] { color: var(--pico-muted-color); font-size: 0.8rem; }
+    table td:empty { display: none; }
 }
