@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    miniradio_server (0.1.0)
+    miniradio_server (0.1.1)
       logger
       mp3info
       open3
