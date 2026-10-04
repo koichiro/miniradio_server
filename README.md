@@ -96,6 +96,7 @@ bundle exec standardrb --fix  # Apply Standard's automatic formatting
 bundle exec rake test         # Ruby tests and the 90% coverage gate
 bundle exec rake test_player  # Player logic tests using Node.js
 bundle exec rake check        # Lint and both test suites (also the default rake task)
+bundle exec rake audit        # Update the advisory database and audit locked gems
 bundle exec rake build        # Build pkg/miniradio_server-0.0.4.gem
 ```
 
@@ -122,6 +123,30 @@ and invoke `miniradio_server --version` from outside the checkout. To release,
 review the version in `lib/miniradio_server/version.rb`, complete the browser
 checks, and use `bundle exec rake release`. Release pushes commits/tags and
 publishes to RubyGems; it is a separate action from building or opening a PR.
+
+## Dependency security
+
+Dependabot checks Bundler dependencies and GitHub Actions every Monday at 09:00
+Asia/Tokyo and opens update PRs. The existing quality checks and the dependency
+security workflow run on those PRs too. Updates are reviewed and merged manually.
+
+The `Dependency security` workflow runs `bundle exec rake audit` on every PR,
+push to `main`, manual dispatch, and daily at approximately 06:17 Asia/Tokyo.
+Each run refreshes [Ruby Advisory Database](https://github.com/rubysec/ruby-advisory-db)
+and checks the entire `Gemfile.lock`, including runtime, development, and
+transitive gems. Known vulnerabilities, insecure gem sources, or a failed
+database refresh cause the job to fail; advisories are not ignored. Local audits
+also require network access to refresh the database. Results appear in the
+Actions job logs. Scheduled audits catch new advisories even without code changes.
+
+Dependabot **alerts** and **security updates** are separate GitHub repository
+settings; `dependabot.yml` enables version update PRs but cannot enable those
+settings. Under **Settings → Advanced Security** (or **Code security and
+analysis**), enable the dependency graph, Dependabot alerts, and Dependabot
+security updates to receive advisory alerts and automatic security fix PRs.
+See [GitHub's Dependabot documentation](https://docs.github.com/en/code-security/dependabot).
+The Actions audit works independently of those settings. It audits locked Ruby
+gems; browser CDN assets and FFmpeg are not part of `Gemfile.lock`.
 
 ## Limitations and next work
 

@@ -16,6 +16,11 @@ end
 desc "Check Ruby style with Standard"
 task lint: :standard
 
+desc "Audit locked gems using the latest Ruby advisory database"
+task :audit do
+  sh "bundle", "exec", "bundle-audit", "check", "--update"
+end
+
 desc "Run lint, Ruby coverage checks, and player tests"
 task check: [:lint, :test, :test_player]
 
