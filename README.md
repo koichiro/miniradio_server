@@ -5,38 +5,33 @@
 
 A small Ruby/Rack server that streams existing MP3 files via HTTP Live Streaming
 (HLS). FFmpeg converts each track on its first request; later requests reuse a
-persistent disk cache. This is a VOD server, not a live radio broadcaster.
-
-The web player uses one audio element and loads streams only when selected.
-It supports continuous playback, play/pause, previous/next, repeat track, and
-shuffle. All compatible browsers, including Safari, use hls.js for HLS playback.
+persistent disk cache. The web player supports continuous playback, seeking,
+repeat track, and shuffle. This is a VOD server, not a live radio broadcaster.
 
 ## Requirements
 
-- Ruby 3.4 or later. The repository uses Ruby **4.0.7** via `.ruby-version`;
-  CI also checks the supported minimum Ruby 3.4 series.
+- Ruby 3.4 or later.
 - FFmpeg on `PATH` (`brew install ffmpeg` or `apt install ffmpeg`).
 - Internet access for the web player's Pico CSS and hls.js CDN assets.
-- Node.js 18 or later for player development tests; not needed to run the server.
+- A browser with Media Source Extensions (MSE) or Managed Media Source (MMS)
+  and support for the stream's audio codec. The player uses hls.js, including
+  on Safari; native HLS alone is not sufficient. AirPlay is disabled.
 
 ## Install and run
 
 ```sh
-gem install miniradio_server -v 0.1.0
+gem install miniradio_server
 mkdir -p mp3_files
 # Copy your .mp3 files into mp3_files, then:
 miniradio_server
 ```
 
 Open <http://localhost:9292/>. Both `mp3_files` and `hls_cache` are created at
-startup in the current working directory. Spaces, Japanese text, and other
-non-ASCII filenames are supported; generated stream links are URL-encoded.
-Only `.mp3` files directly inside the source directory are listed.
+startup in the current working directory. Only `.mp3` files directly inside the
+source directory are listed. Spaces, Japanese text, and other non-ASCII
+filenames are supported. Press Ctrl+C to stop the server.
 
-Version **0.1.0** was published on October 4, 2026 and is available on
-[RubyGems.org](https://rubygems.org/gems/miniradio_server/versions/0.1.0).
-See the [GitHub release](https://github.com/koichiro/miniradio_server/releases/tag/v0.1.0)
-for release notes and the gem artifact, or [CHANGELOG.md](CHANGELOG.md) for changes.
+To choose directories, a port, or an FFmpeg executable:
 
 ```sh
 miniradio_server --mp3-dir /path/to/music --cache-dir /path/to/cache --port 9393
@@ -45,173 +40,15 @@ miniradio_server --help
 miniradio_server --version
 ```
 
-The server stays in the foreground; press Ctrl+C to stop it. Defaults are port
-9292, `ffmpeg`, and a target HLS segment duration of 10 seconds. Custom Ruby
-applications can instantiate `MiniradioServer::App` with their own directories,
-FFmpeg command, segment duration, and logger. Requiring the library does not
-start a server.
+### GitHub Packages
 
-## Playback
-
-The player loads hls.js 1.x from the CDN and requires Media Source Extensions
-(MSE) or Managed Media Source (MMS) with support for the stream's audio codec.
-According to [hls.js compatibility documentation](https://github.com/video-dev/hls.js#compatibility),
-Safari targets include macOS Safari 10+ (macOS 10.11+), iPadOS Safari 13+,
-and iOS Safari 17.1+ (MMS requires hls.js 1.5.0+). These are library targets;
-actual MP3 playback must also be checked on the target device. Older iPhones
-without MMS cannot use this player, even if they support native HLS.
-The player checks `Hls.isSupported()` and displays an error if hls.js is
-unsupported or fails to load; there is no native HLS fallback.
-Remote playback (including AirPlay) is disabled to allow
-[Safari MMS playback without a native alternative](https://webkit.org/blog/14735/webkit-features-in-safari-17-1/).
-
-- The shared player above the track list shows the selected track's title,
-  artist, album, embedded artwork, playback state, and elapsed/total time.
-  Missing tags use the filename or an information-unavailable label; missing
-  artwork uses a placeholder. Selecting a row updates this shared player.
-- The seek bar changes playback position once the duration and seekable range
-  are available. Volume and mute stay unchanged when selecting another track;
-  devices that cannot change volume from the page show a device-control hint.
-- **Play all** starts at the first track and can restart a finished playlist.
-- Each row has a keyboard-accessible play button.
-- **Previous** wraps from the first track to the last. **Next** stops at the end
-  of the list when shuffle is off.
-- **Repeat track** repeats the current track when it ends; it does not loop the
-  entire playlist. Manual previous/next still select another track.
-- **Shuffle** chooses a different random track when there is more than one
-  track, and continues until paused. Repeat track takes precedence on track end.
-- Playback controls are grouped in the shared player; rows only select tracks.
-  When the playlist finishes, the last selected track stays visible. **Play**
-  restarts that track, while **Play all** restarts from the first track.
-
-The first play of a track may take a few seconds while FFmpeg creates its cache.
-An overlapping request for the same conversion receives HTTP 503 with
-`retry-after: 5`. If playback fails, the page displays a message; select the track
-again or press **Retry** to reload it, or press **Play** if the browser blocked
-playback. Track information stays visible when playback is paused or fails.
-
-### Artwork
-
-Only the selected track's artwork is requested, via
-`/artwork/{URL-encoded-filename-without-extension}`. The server returns the
-first eligible embedded JPEG or PNG (up to 5 MiB), with a MIME type determined
-from the binary signature. It does not fetch external covers, search neighboring
-image files, convert images, or create an artwork disk cache. Missing,
-unsupported, oversized, or unreadable artwork returns 404 and shows a placeholder
-without interrupting playback. The size limit bounds the served image, not the
-MP3 parser's memory usage. Unreadable track metadata falls back to the filename
-so one bad tag does not prevent the library from displaying.
-
-## Direct streams and cache
-
-```text
-http://localhost:9292/stream/{URL-encoded-filename-without-extension}/playlist.m3u8
-```
-
-For `my song.mp3`, use `/stream/my%20song/playlist.m3u8`. HLS-compatible players
-can request the playlist and the segment URLs it contains directly.
-
-FFmpeg copies the audio codec without re-encoding. Each track gets a cache
-subdirectory containing `playlist.m3u8` and `segmentNNN.mp3` files. Despite their
-extension, the segments use FFmpeg's default HLS MPEG-TS container. The cache
-persists across restarts. Failed conversions are cleaned up and can be retried.
-When a source MP3 changes, manually remove its cache subdirectory while the
-server is stopped; automatic invalidation is not implemented.
-
-## Development
-
-```sh
-git clone https://github.com/koichiro/miniradio_server.git
-cd miniradio_server
-bin/setup
-bin/miniradio_server
-bundle exec exe/miniradio_server --help
-```
-
-```sh
-bundle exec rake lint         # Standard Ruby style checks
-bundle exec standardrb --fix  # Apply Standard's automatic formatting
-bundle exec rake test         # Ruby tests and the 90% coverage gate
-bundle exec rake test_player  # Player logic tests using Node.js
-bundle exec rake check        # Lint and both test suites (also the default rake task)
-bundle exec rake audit        # Update the advisory database and audit locked gems
-bundle exec rake build        # Build pkg/miniradio_server-0.1.0.gem
-bundle exec rake smoke_gem    # Build/install in a temporary directory and check CLI/assets
-```
-
-The Ruby suite runs real HLS conversion tests when FFmpeg is installed, and
-skips those tests otherwise. CI installs FFmpeg so conversion tests always run.
-Standard checks Ruby source, tests, executables, and project configuration using
-Ruby 3.4 syntax as the supported minimum; no style violations are grandfathered.
-SimpleCov measures Ruby **line coverage** and fails the test command if the
-overall coverage or any measured source file falls below **90%**. All runtime
-Ruby files under `lib/` are tracked, including files not loaded by tests; only
-the declarative `version.rb` metadata loaded by Bundler before instrumentation
-is excluded. Reports contain the current run only, without merging earlier runs.
-Open `coverage/index.html` for the HTML report or read `coverage/coverage.json`
-for machine-readable results. GitHub Actions runs the same lint/coverage checks
-on Ruby 3.4 and 4.0.7 and uploads each coverage report as an artifact, including
-when tests or the coverage threshold fail.
-Player tests cover control behavior, hls.js readiness, native-capable browsers,
-unavailable hls.js, and URL-encoded Japanese filenames using simulated DOM/media
-APIs. Before releasing, also check actual playback in Safari and Chrome: initial play, rapid track changes, next-track autoplay, pause/resume,
-repeat, shuffle, seeking, and empty libraries. Include Japanese filenames and
-check macOS Safari and iOS/iPadOS Safari on actual devices; simulated player
-tests do not verify decoding or browser autoplay policies.
-
-## Releasing
-
-Version 0.1.0 is already published. For future releases, update
-`lib/miniradio_server/version.rb`, `Gemfile.lock`, and `CHANGELOG.md`, and use the
-new version in the artifact paths below. Prepare and verify the release artifact:
-
-```sh
-bundle install
-bundle exec rake check
-bundle exec rake audit
-bundle exec rake smoke_gem
-# Install the built artifact for local use:
-gem install ./pkg/miniradio_server-0.1.0.gem --no-document
-miniradio_server --version  # 0.1.0
-```
-
-The smoke check installs only the built gem into a temporary gem home, using
-runtime dependencies already installed by Bundler. It runs outside the checkout
-and checks the command, version, help, rendered page, JavaScript, and CSS.
-It does not start a listening HTTP server. The package includes runtime files,
-README, changelog, and license; tests, sample MP3s, and local caches are excluded.
-FFmpeg is an external requirement and is not bundled in the gem.
-
-After merging the release PR, complete the browser checks described above and
-run the following from an up-to-date, clean `main` checkout with GitHub push
-access and RubyGems publishing credentials for `miniradio_server`:
-
-```sh
-git switch main
-git pull --ff-only
-bundle install
-bundle exec rake release
-```
-
-Bundler's release task builds the gem, creates a `vVERSION` Git tag, pushes it
-to the Git remote, and publishes to RubyGems. The gemspec restricts publishing
-to `https://rubygems.org`. Building, running the smoke check, and opening the PR
-do not publish a gem. After publishing, create a GitHub release for the tag with
-release notes, the built `.gem` artifact, and its SHA256 checksum. GitHub
-Packages is a separate registry; publish the GitHub Packages variant using the
-workflow below to display it in the repository's Packages sidebar.
-See [CHANGELOG.md](CHANGELOG.md) for the release contents.
-
-## GitHub Packages
-
-The gem is also distributed through the
-[GitHub Packages registry](https://github.com/users/koichiro/packages/rubygems/package/miniradio_server).
-RubyGems.org remains the simplest install source and requires no GitHub token.
-GitHub Packages requires authentication even when the package is public. Use a
-GitHub personal access token (classic) with `read:packages`, and configure
-Bundler's credentials locally according to the
-[GitHub documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-rubygems-registry).
-In a consuming project's Gemfile:
+The gem is also available from
+[GitHub Packages](https://github.com/users/koichiro/packages/rubygems/package/miniradio_server).
+RubyGems.org is the simplest install source and requires no GitHub token.
+For GitHub Packages, configure Bundler with a personal access token (classic)
+with `read:packages` as described in the
+[GitHub documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-rubygems-registry),
+then add this to your project's Gemfile (the version is an example):
 
 ```ruby
 source "https://rubygems.org"
@@ -220,58 +57,54 @@ source "https://rubygems.pkg.github.com/koichiro" do
 end
 ```
 
-Maintainers can run the **Publish GitHub Packages** workflow manually from
-GitHub Actions with an existing release tag, for example `v0.1.0`. It downloads
-the release's gem and `SHA256SUMS.txt`, checks the checksum, and creates a registry
-variant with `allowed_push_host` and `github_repo` metadata. All packaged files
-are verified to match the original release exactly. The installed variant is
-checked before publishing with the workflow's `GITHUB_TOKEN`; no additional
-publishing secret is needed. The variant has a different archive checksum
-because its registry metadata differs. The RubyGems.org artifact remains
-unchanged. When first published, check the package's visibility in GitHub
-Packages settings and set it to public for public distribution.
+## Playback
 
-## Dependency security
+Select a track or press **Play all** to start from the first track. The shared
+player shows the selected track's title, artist, album, embedded artwork, and
+elapsed/total time. Missing metadata falls back to the filename or a placeholder.
+Embedded JPEG and PNG artwork up to 5 MiB is supported.
 
-Dependabot checks Bundler dependencies and GitHub Actions every Monday at 09:00
-Asia/Tokyo and opens update PRs. The existing quality checks and the dependency
-security workflow run on those PRs too. Updates are reviewed and merged manually.
+- **Play/Pause**, seeking, volume, and mute control the selected track. On devices
+  that cannot adjust volume from the page, use the device's volume controls.
+- **Previous** wraps from the first track to the last. **Next** stops at the end
+  of the list when shuffle is off.
+- **Repeat track** repeats the current track; manual previous/next still work.
+- **Shuffle** chooses a different random track and continues until paused.
+  Repeat track takes precedence when a track ends.
+- After the playlist finishes, **Play** restarts the last selected track;
+  **Play all** restarts from the first track.
 
-The `Dependency security` workflow runs `bundle exec rake audit` on every PR,
-push to `main`, manual dispatch, and daily at approximately 06:17 Asia/Tokyo.
-Each run refreshes [Ruby Advisory Database](https://github.com/rubysec/ruby-advisory-db)
-and checks the entire `Gemfile.lock`, including runtime, development, and
-transitive gems. Known vulnerabilities, insecure gem sources, or a failed
-database refresh cause the job to fail; advisories are not ignored. Local audits
-also require network access to refresh the database. Results appear in the
-Actions job logs. Scheduled audits catch new advisories even without code changes.
+The first play of a track may take a few seconds while FFmpeg creates its cache.
+If playback fails, select the track again or press **Retry** to reload it. Press
+**Play** if the browser blocked playback. Unsupported browsers display an error.
 
-Dependabot **alerts** and **security updates** are separate GitHub repository
-settings; `dependabot.yml` enables version update PRs but cannot enable those
-settings. Under **Settings → Advanced Security** (or **Code security and
-analysis**), enable the dependency graph, Dependabot alerts, and Dependabot
-security updates to receive advisory alerts and automatic security fix PRs.
-See [GitHub's Dependabot documentation](https://docs.github.com/en/code-security/dependabot).
-The Actions audit works independently of those settings. It audits locked Ruby
-gems; browser CDN assets and FFmpeg are not part of `Gemfile.lock`.
+## Direct streams and cache
 
-## Limitations and next work
+HLS-compatible players can open a track's playlist directly:
 
-- VOD only; no live input, authentication, or authorization.
-- The server is intended for trusted local use. WEBrick binds to its default
-  interface; restrict access with your network configuration when needed.
-- Conversion is synchronous per request. Locks are per process, not shared
-  between multiple server processes.
-- Directory traversal and symlink escapes are rejected, and track metadata is
-  rendered as text. Source/cache directories should remain under your control.
-- No automatic cache invalidation, size limit, or eviction policy.
-- Corrupt or unsupported audio may still fail playback even when its filename
-  is listed using the metadata fallback.
-- Remaining work includes browser playback checks, cache lifecycle management,
-  and improved recovery from conversion/player errors.
+```text
+http://localhost:9292/stream/{URL-encoded-filename-without-extension}/playlist.m3u8
+```
+
+For `my song.mp3`, use `/stream/my%20song/playlist.m3u8`.
+
+FFmpeg copies the audio without re-encoding. Each track gets a cache subdirectory
+containing its playlist and segments. The cache persists across restarts. When
+a source MP3 changes, stop the server and remove that track's cache subdirectory
+to regenerate it. Cache invalidation, size limits, and eviction are manual.
+
+## Limitations
+
+- Intended for trusted local use; there is no authentication or authorization.
+  Restrict network access as needed and keep source/cache directories under
+  your control.
+- Conversion runs synchronously. Concurrent requests for the same conversion
+  receive HTTP 503 with `retry-after: 5`; conversion locks are per process.
+- Corrupt or unsupported audio may fail playback even if the track is listed.
 
 ## Contributing and license
 
 Bug reports and pull requests are welcome on
 [GitHub](https://github.com/koichiro/miniradio_server).
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 Licensed under MIT; see [LICENSE.txt](LICENSE.txt).
