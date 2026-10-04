@@ -61,6 +61,13 @@ unsupported or fails to load; there is no native HLS fallback.
 Remote playback (including AirPlay) is disabled to allow
 [Safari MMS playback without a native alternative](https://webkit.org/blog/14735/webkit-features-in-safari-17-1/).
 
+- The shared player above the track list shows the selected track's title,
+  artist, album, embedded artwork, playback state, and elapsed/total time.
+  Missing tags use the filename or an information-unavailable label; missing
+  artwork uses a placeholder. Selecting a row updates this shared player.
+- The seek bar changes playback position once the duration and seekable range
+  are available. Volume and mute stay unchanged when selecting another track;
+  devices that cannot change volume from the page show a device-control hint.
 - **Play all** starts at the first track and can restart a finished playlist.
 - Each row has a keyboard-accessible play button.
 - **Previous** wraps from the first track to the last. **Next** stops at the end
@@ -69,12 +76,27 @@ Remote playback (including AirPlay) is disabled to allow
   entire playlist. Manual previous/next still select another track.
 - **Shuffle** chooses a different random track when there is more than one
   track, and continues until paused. Repeat track takes precedence on track end.
-- The native audio controls provide seeking and volume where the browser supports them.
+- Playback controls are grouped in the shared player; rows only select tracks.
+  When the playlist finishes, the last selected track stays visible. **Play**
+  restarts that track, while **Play all** restarts from the first track.
 
 The first play of a track may take a few seconds while FFmpeg creates its cache.
 An overlapping request for the same conversion receives HTTP 503 with
 `retry-after: 5`. If playback fails, the page displays a message; select the track
-again to retry loading, or press Play if the browser blocked playback.
+again or press **Retry** to reload it, or press **Play** if the browser blocked
+playback. Track information stays visible when playback is paused or fails.
+
+### Artwork
+
+Only the selected track's artwork is requested, via
+`/artwork/{URL-encoded-filename-without-extension}`. The server returns the
+first eligible embedded JPEG or PNG (up to 5 MiB), with a MIME type determined
+from the binary signature. It does not fetch external covers, search neighboring
+image files, convert images, or create an artwork disk cache. Missing,
+unsupported, oversized, or unreadable artwork returns 404 and shows a placeholder
+without interrupting playback. The size limit bounds the served image, not the
+MP3 parser's memory usage. Unreadable track metadata falls back to the filename
+so one bad tag does not prevent the library from displaying.
 
 ## Direct streams and cache
 
@@ -172,7 +194,8 @@ gems; browser CDN assets and FFmpeg are not part of `Gemfile.lock`.
 - Directory traversal and symlink escapes are rejected, and track metadata is
   rendered as text. Source/cache directories should remain under your control.
 - No automatic cache invalidation, size limit, or eviction policy.
-- Corrupt or unsupported MP3 metadata can prevent the index from rendering.
+- Corrupt or unsupported audio may still fail playback even when its filename
+  is listed using the metadata fallback.
 - Remaining work includes browser playback checks, cache lifecycle management,
   and improved recovery from conversion/player errors.
 

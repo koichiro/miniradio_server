@@ -10,18 +10,41 @@ html lang="en"
         script src="/player.js" defer=true
     body
         header.container
-            h1 Streaming List
-            div id="currentTrack" aria-live="polite" Now Playing: None
-            p id="playerStatus" role="status"
+            h1 Miniradio
         main.container
-            div.controls role="group" aria-label="Playback controls"
-                button id="startButton" ▶️ Play all
-                button id="playPauseButton" disabled=true ⏯️ Play/Pause
-                button id="prevButton" disabled=true ⏮️ Previous
-                button id="nextButton" disabled=true ⏭️ Next
-                button id="loopButton" aria-pressed="false" 🔁 Repeat track: OFF
-                button id="shuffleButton" aria-pressed="false" 🔀 Shuffle: OFF
-            audio id="player" controls=true preload="none"
+            section.now-playing aria-label="Current track"
+                div.track-details
+                    div.artwork
+                        img id="currentArtwork" alt="" hidden=true
+                        div id="artworkPlaceholder" aria-hidden="true"
+                            span ♪
+                            small No artwork
+                    div.track-metadata aria-live="polite"
+                        p id="playbackState" No track selected
+                        h2 id="currentTrack" Select a track
+                        p id="currentArtist"
+                        p id="currentAlbum"
+                div.custom-controls id="customControls" hidden=true
+                    div.time-labels
+                        span id="elapsedTime" 0:00
+                        span id="durationTime" --:--
+                    input id="seekControl" type="range" min="0" max="0" step="0.1" value="0" disabled=true aria-label="Playback position"
+                    div.transport role="group" aria-label="Playback controls"
+                        button id="prevButton" disabled=true aria-label="Previous track" ⏮ Previous
+                        button id="playPauseButton" disabled=true Play
+                        button id="nextButton" disabled=true aria-label="Next track" Next ⏭
+                        div.volume id="volumeControls"
+                            button id="muteButton" aria-pressed="false" Mute
+                            label for="volumeControl" Volume
+                            input id="volumeControl" type="range" min="0" max="1" step="0.01" value="1"
+                        small id="volumeHint" hidden=true Use your device’s volume controls.
+                    div.playback-options role="group" aria-label="Playback options"
+                        button id="startButton" Play all
+                        button id="loopButton" aria-pressed="false" Repeat track: OFF
+                        button id="shuffleButton" aria-pressed="false" Shuffle: OFF
+                audio id="player" controls=true preload="none"
+                p id="playerStatus" role="status"
+            h2.playlist-heading Tracks
             table.compact.striped id="playlistTable"
                 thead
                     tr
@@ -29,6 +52,7 @@ html lang="en"
                         th scope="col" Title
                         th scope="col" Artist
                         th scope="col" Album
+                        th scope="col" Status
                 tbody
             script id="tracks" type="application/json"
                 == tracks_json

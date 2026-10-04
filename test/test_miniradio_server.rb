@@ -66,6 +66,10 @@ class TestMiniradioServer < Minitest::Test
     tracks = JSON.parse(html.match(/<script[^>]*id="tracks"[^>]*>(.*?)<\/script>/m)[1])
     assert_equal "song", tracks.first["file"]
     assert_equal "/stream/song/playlist.m3u8", tracks.first["url"]
+    assert_equal "/artwork/song", tracks.first["artwork_url"]
+    %w[currentArtwork artworkPlaceholder currentArtist currentAlbum playbackState seekControl volumeControl muteButton].each do |id|
+      assert_includes html, "id=\"#{id}\""
+    end
     assert_equal 200, request("/index.html").first
   end
 
@@ -179,11 +183,71 @@ class TestMiniradioServer < Minitest::Test
     end
   end
 
-  def test_corrupt_metadata_returns_server_error_without_exposing_exception
+  def test_corrupt_metadata_keeps_the_library_available
     File.write(File.join(@mp3_dir, "broken.mp3"), "not an MP3")
     status, _headers, body = request("/")
-    assert_equal 500, status
-    assert_equal "Internal Server Error\n", body
+    assert_equal 200, status
+    tracks = JSON.parse(body.match(/<script[^>]*id="tracks"[^>]*>(.*?)<\/script>/m)[1])
+    assert_equal %w[broken song], tracks.map { |t| t["file"] }.sort
+    assert_nil tracks.find { |t| t["file"] == "broken" }["title"]
+  end
+
+  def test_embedded_artwork_is_served_without_running_ffmpeg
+    ["\xff\xd8\xfftest".b, "\x89PNG\r\n\x1a\ntest".b].zip(%w[image/jpeg image/png]).each do |image, mime|
+      Mp3Info.open(File.join(@mp3_dir, "song.mp3")) { |mp3| mp3.tag2.add_picture(image) }
+      Open3.stub(:capture3, ->(*) { flunk "Artwork must not invoke FFmpeg" }) do
+        status, headers, body = request("/artwork/song")
+        assert_equal 200, status
+        assert_equal mime, headers["content-type"]
+        assert_equal image, body
+        assert_equal image.bytesize.to_s, headers["content-length"]
+        assert_equal "nosniff", headers["x-content-type-options"]
+        assert_equal "no-store", headers["cache-control"]
+      end
+    end
+    assert_empty Dir.children(@cache_dir)
+  end
+
+  def test_artwork_selects_first_eligible_image_by_signature
+    image = "\x89PNG\r\n\x1a\ndata".b
+    pictures = [["untrusted.jpg", "not an image"], ["huge.png", image + "x" * MiniradioServer::App::MAX_ARTWORK_BYTES],
+      ["../../wrong.jpg", image], ["later.png", "\xff\xd8\xfflater".b]]
+    mp3 = Struct.new(:tag2).new(Struct.new(:pictures).new(pictures))
+    Mp3Info.stub(:open, ->(_path, &block) { block.call(mp3) }) do
+      status, headers, body = request("/artwork/song")
+      assert_equal 200, status
+      assert_equal "image/png", headers["content-type"]
+      assert_equal image, body
+    end
+  end
+
+  def test_missing_invalid_or_broken_artwork_falls_back_to_not_found
+    assert_equal 404, request("/artwork/song").first
+    assert_equal 404, request("/artwork/missing").first
+    File.write(File.join(@mp3_dir, "broken.mp3"), "not an MP3")
+    assert_equal 404, request("/artwork/broken").first
+    mp3 = Struct.new(:tag2).new(Struct.new(:pictures).new([["bad", nil], ["bad", "invalid"]]))
+    Mp3Info.stub(:open, ->(_path, &block) { block.call(mp3) }) do
+      assert_equal 404, request("/artwork/song").first
+    end
+  end
+
+  def test_artwork_urls_handle_unicode_and_reject_unsafe_sources
+    image = "\x89PNG\r\n\x1a\ndata".b
+    Mp3Info.open(File.join(@mp3_dir, "song.mp3")) { |mp3| mp3.tag2.add_picture(image) }
+    name = "日本語 +%"
+    FileUtils.cp(File.join(@mp3_dir, "song.mp3"), File.join(@mp3_dir, "#{name}.mp3"))
+    track = @app.get_mp3_list.find { |item| item[:file] == name }
+    assert_equal image, request(track[:artwork_url]).last
+    %w[%2E%2E a%2Fb a%5Cb a%00b %FF].each do |basename|
+      assert_equal 403, request("/artwork/#{basename}").first
+    end
+    outside = File.join(@tmp_dir, "outside.mp3")
+    FileUtils.cp(File.join(@mp3_dir, "song.mp3"), outside)
+    File.symlink(outside, File.join(@mp3_dir, "outside.mp3"))
+    assert_equal 403, request("/artwork/outside").first
+    File.symlink(File.join(@tmp_dir, "absent.mp3"), File.join(@mp3_dir, "absent.mp3"))
+    assert_equal 404, request("/artwork/absent").first
   end
 
   def test_disappearing_and_unreadable_cache_files_have_valid_responses

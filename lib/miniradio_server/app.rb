@@ -13,6 +13,7 @@ require "rackup/handler/webrick"
 # Rack application class
 module MiniradioServer
   class App
+    MAX_ARTWORK_BYTES = 5 * 1024 * 1024
     URL_PARSER = URI::RFC2396_Parser.new
     private_constant :URL_PARSER
 
@@ -37,6 +38,12 @@ module MiniradioServer
         return response(200, index, "text/html")
       end
 
+      if (artwork = request_path.match(%r{^/artwork/([^/]+)$}))
+        _basename, source, error = mp3_source(artwork[1])
+        return error if error
+        return serve_artwork(source)
+      end
+
       # Path pattern: /stream/{mp3_basename}/{playlist or segment}
       # mp3_basename is the filename without the extension
       match = request_path.match(%r{^/stream/([^/]+)/(.+\.(m3u8|mp3))$})
@@ -46,24 +53,11 @@ module MiniradioServer
         return not_found_response("Not Found (Invalid Path Format)")
       end
 
-      mp3_basename = URL_PARSER.unescape(match[1]).force_encoding(Encoding::UTF_8)
+      mp3_basename, original_mp3_path, error = mp3_source(match[1])
+      return error if error
       requested_filename = match[2] # e.g., "playlist.m3u8" or "segment001.mp3"
       extension = match[3].downcase # "m3u8" or "mp3"
       return not_found_response if extension == "m3u8" && requested_filename != "playlist.m3u8"
-
-      # --- Check if the original MP3 file exists ---
-      # Security: Check for directory traversal in basename
-      if !mp3_basename.valid_encoding? || mp3_basename.include?("\0") || mp3_basename.include?("..") || mp3_basename.include?("/") || mp3_basename.include?("\\")
-        @logger.warn "Invalid MP3 base name requested: #{mp3_basename}"
-        return forbidden_response("Invalid filename.")
-      end
-      original_mp3_path = @mp3_dir.join("#{mp3_basename}.mp3")
-      return forbidden_response("Access denied.") unless within_directory?(original_mp3_path, @mp3_dir)
-
-      unless original_mp3_path.exist? && original_mp3_path.file?
-        @logger.warn "Original MP3 file not found: #{original_mp3_path}"
-        return not_found_response("Not Found (Original MP3)")
-      end
 
       # --- Build cache paths ---
       cache_subdir = @cache_dir.join(mp3_basename)
@@ -120,14 +114,18 @@ module MiniradioServer
       r = []
       @mp3_dir.glob("*.mp3").each do |file|
         next unless file.file? && within_directory?(file, @mp3_dir)
-        mp3 = {}
-        Mp3Info.open(file) do |mp3info|
-          mp3[:title] = mp3info.tag.title
-          mp3[:artist] = mp3info.tag.artist
-          mp3[:album] = mp3info.tag.album
-          mp3[:file] = file.basename(".mp3").to_s
-          encoded_file = URL_PARSER.escape(mp3[:file], /[^a-zA-Z0-9\-._~]/)
-          mp3[:url] = "/stream/#{encoded_file}/playlist.m3u8"
+        name = file.basename(".mp3").to_s
+        encoded_file = URL_PARSER.escape(name, /[^a-zA-Z0-9\-._~]/)
+        mp3 = {file: name, title: nil, artist: nil, album: nil,
+               url: "/stream/#{encoded_file}/playlist.m3u8", artwork_url: "/artwork/#{encoded_file}"}
+        begin
+          Mp3Info.open(file) do |mp3info|
+            mp3[:title] = mp3info.tag.title
+            mp3[:artist] = mp3info.tag.artist
+            mp3[:album] = mp3info.tag.album
+          end
+        rescue => e
+          @logger.warn "Unable to read metadata for #{name}: #{e.message}"
         end
         r << mp3
       end
@@ -142,6 +140,41 @@ module MiniradioServer
     end
 
     private
+
+    # The stream and artwork routes share the same source validation.
+    def mp3_source(encoded_name)
+      name = URL_PARSER.unescape(encoded_name).force_encoding(Encoding::UTF_8)
+      if !name.valid_encoding? || name.include?("\0") || name.include?("..") || name.include?("/") || name.include?("\\")
+        return [nil, nil, forbidden_response("Invalid filename.")]
+      end
+      path = @mp3_dir.join("#{name}.mp3")
+      return [nil, nil, forbidden_response("Access denied.")] unless within_directory?(path, @mp3_dir)
+      return [nil, nil, not_found_response("Not Found (Original MP3)")] unless path.file?
+
+      [name, path, nil]
+    end
+
+    def serve_artwork(source)
+      Mp3Info.open(source) do |mp3|
+        mp3.tag2.pictures.each do |_name, data|
+          next unless data.is_a?(String) && data.bytesize <= MAX_ARTWORK_BYTES
+          data = data.b
+          mime = if data.start_with?("\x89PNG\r\n\x1a\n".b)
+            "image/png"
+          elsif data.start_with?("\xff\xd8\xff".b)
+            "image/jpeg"
+          end
+          next unless mime
+
+          return [200, {"content-type" => mime, "content-length" => data.bytesize.to_s,
+                        "cache-control" => "no-store", "x-content-type-options" => "nosniff"}, [data]]
+        end
+      end
+      not_found_response("No supported artwork")
+    rescue => e
+      @logger.warn "Unable to read artwork: #{e.message}"
+      not_found_response("No supported artwork")
+    end
 
     # Resolve existing ancestors as well as files, so symlinks cannot escape a
     # configured directory before conversion or when serving cached segments.
