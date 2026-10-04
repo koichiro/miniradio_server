@@ -103,7 +103,7 @@ DOM/media APIs. Before releasing, also check actual playback in Safari and
 Chrome: initial play, rapid track changes, next-track autoplay, pause/resume,
 repeat, shuffle, seeking, and empty libraries.
 
-For a local installed-gem check, run `gem install --local pkg/miniradio_server-0.0.4.gem`
+For a local installed-gem check, run `gem install pkg/miniradio_server-0.0.4.gem`
 and invoke `miniradio_server --version` from outside the checkout. To release,
 review the version in `lib/miniradio_server/version.rb`, complete the browser
 checks, and use `bundle exec rake release`. Release pushes commits/tags and

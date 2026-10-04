@@ -2,6 +2,7 @@ name: Tests
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -30,7 +31,7 @@ jobs:
       - name: Build and install the gem
         run: |
           bundle exec rake build
-          gem install --local pkg/miniradio_server-*.gem --no-document
+          gem install pkg/miniradio_server-*.gem --no-document
           cd "$(mktemp -d)"
           miniradio_server --version
           miniradio_server --help
