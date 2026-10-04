@@ -28,7 +28,7 @@ class Element {
     set innerHTML(_value) { throw new Error('Track metadata must be assigned as text'); }
 }
 
-function setup({ native = true, support = true, tracks, rejectPlay = false } = {}) {
+function setup({ native = true, support = true, library = true, tracks, rejectPlay = false } = {}) {
     tracks ||= [0, 1, 2].map(i => ({ file: `song${i}`, url: `/stream/song${i}/playlist.m3u8` }));
     const elements = Object.fromEntries(['tracks', 'player', 'currentTrack', 'playerStatus', 'startButton', 'playPauseButton', 'prevButton', 'nextButton', 'loopButton', 'shuffleButton'].map(id => [id, new Element()]));
     elements.tracks.textContent = JSON.stringify(tracks);
@@ -64,7 +64,7 @@ function setup({ native = true, support = true, tracks, rejectPlay = false } = {
             querySelector: () => tableBody,
             createElement: () => new Element()
         },
-        Hls: support ? Hls : undefined,
+        Hls: library ? Hls : undefined,
         Math: Object.assign(Object.create(Math), { random: () => 0 })
     };
     vm.runInNewContext(source, context);
@@ -92,100 +92,127 @@ test('empty library disables controls without loading a stream', () => {
     assert.equal(elements.playerStatus.textContent, 'No MP3 files found.');
 });
 
-test('native HLS waits for canplay and removes superseded listeners', () => {
-    const { player, elements, instances, click, select } = setup();
+test('native HLS support still uses hls.js and enables ManagedMediaSource playback', () => {
+    const { player, instances, click } = setup({ native: true });
     click('startButton');
-    assert.equal(player.src, '/stream/song0/playlist.m3u8');
-    assert.equal(player.plays, 0);
-    select(2);
-    assert.equal(player.listeners.get('canplay').size, 1);
+    assert.equal(player.disableRemotePlayback, true);
+    assert.equal(instances[0].media, player);
+    assert.equal(player.src, undefined);
+    assert.equal(player.loads, 0);
     player.emit('canplay');
+    assert.equal(player.plays, 0);
+    instances[0].emit('ready');
     assert.equal(player.plays, 1);
-    assert.equal(player.listeners.get('canplay').size, 0);
-    assert.equal(elements.currentTrack.textContent, 'Now Playing: song2');
-    assert.equal(instances.length, 0);
 });
 
 test('hls.js waits for the manifest and destroys the previous instance', () => {
-    const { player, instances, click, select } = setup({ native: false });
+    const { player, elements, instances, click, select } = setup({ native: false });
     click('startButton');
     assert.equal(instances[0].url, '/stream/song0/playlist.m3u8');
     assert.equal(player.plays, 0);
     select(1);
     assert.equal(instances[0].destroyed, true);
     instances[0].emit('ready');
+    instances[0].emit('error', { fatal: true });
     assert.equal(player.plays, 0);
+    assert.equal(elements.playerStatus.textContent, '');
     instances[1].emit('ready');
     assert.equal(player.plays, 1);
 });
 
 test('continuous playback stops at the end and Play all restarts', () => {
-    const { player, elements, tableBody, click } = setup();
+    const { player, elements, tableBody, instances, click } = setup();
     click('startButton');
     player.emit('ended');
-    assert.equal(player.src, '/stream/song1/playlist.m3u8');
+    assert.equal(instances.at(-1).url, '/stream/song1/playlist.m3u8');
     player.emit('ended');
-    assert.equal(player.src, '/stream/song2/playlist.m3u8');
-    const loads = player.loads;
+    assert.equal(instances.at(-1).url, '/stream/song2/playlist.m3u8');
+    const loads = instances.length;
     player.emit('ended');
-    assert.equal(player.loads, loads);
+    assert.equal(instances.length, loads);
     assert.equal(tableBody.children.some(row => row.active), false);
     assert.match(elements.playerStatus.textContent, /Playlist finished/);
     click('startButton');
-    assert.equal(player.src, '/stream/song0/playlist.m3u8');
+    assert.equal(instances.at(-1).url, '/stream/song0/playlist.m3u8');
 });
 
 test('previous, next, play/pause and repeat track have consistent behavior', () => {
-    const { player, elements, click } = setup();
+    const { player, elements, instances, click } = setup();
     click('startButton');
-    player.emit('canplay');
+    instances[0].emit('ready');
     click('playPauseButton');
     assert.equal(player.paused, true);
     click('playPauseButton');
     assert.equal(player.paused, false);
     click('nextButton');
-    assert.equal(player.src, '/stream/song1/playlist.m3u8');
+    assert.equal(instances.at(-1).url, '/stream/song1/playlist.m3u8');
     click('prevButton');
-    assert.equal(player.src, '/stream/song0/playlist.m3u8');
+    assert.equal(instances.at(-1).url, '/stream/song0/playlist.m3u8');
     click('prevButton');
-    assert.equal(player.src, '/stream/song2/playlist.m3u8');
+    assert.equal(instances.at(-1).url, '/stream/song2/playlist.m3u8');
     click('loopButton');
     assert.equal(elements.loopButton.attributes['aria-pressed'], 'true');
     player.emit('ended');
-    assert.equal(player.src, '/stream/song2/playlist.m3u8');
+    assert.equal(instances.at(-1).url, '/stream/song2/playlist.m3u8');
     click('nextButton');
-    assert.equal(player.src, '/stream/song2/playlist.m3u8');
+    assert.equal(instances.at(-1).url, '/stream/song2/playlist.m3u8');
 });
 
 test('shuffle selects a different track and single-track shuffle finishes', () => {
-    const { player, click } = setup();
+    const { player, instances, click } = setup();
     click('startButton');
     click('shuffleButton');
     player.emit('ended');
-    assert.equal(player.src, '/stream/song1/playlist.m3u8');
+    assert.equal(instances.at(-1).url, '/stream/song1/playlist.m3u8');
     const single = setup({ tracks: [{ file: 'only', url: '/only' }] });
     single.click('startButton');
     single.click('shuffleButton');
     single.player.emit('ended');
-    assert.equal(single.player.loads, 1);
+    assert.equal(single.instances.length, 1);
     assert.match(single.elements.playerStatus.textContent, /Playlist finished/);
 });
 
-test('unsupported HLS and fatal stream errors are visible', () => {
-    const unsupported = setup({ native: false, support: false });
-    unsupported.click('startButton');
-    assert.match(unsupported.elements.playerStatus.textContent, /cannot play HLS/);
-    assert.equal(unsupported.elements.playPauseButton.disabled, true);
-    const fallback = setup({ native: false });
-    fallback.click('startButton');
-    fallback.instances[0].emit('error', { fatal: true });
-    assert.match(fallback.elements.playerStatus.textContent, /Unable to load/);
+test('unsupported or missing hls.js never falls back to native HLS', () => {
+    for (const options of [{ support: false }, { library: false }]) {
+        const { player, elements, instances, click } = setup({ native: true, ...options });
+        click('startButton');
+        assert.match(elements.playerStatus.textContent, /cannot play HLS streams/);
+        assert.equal(elements.playPauseButton.disabled, true);
+        assert.equal(instances.length, 0);
+        assert.equal(player.src, undefined);
+        assert.equal(player.loads, 0);
+        assert.equal(player.plays, 0);
+    }
+});
+
+test('fatal stream errors are visible and reselecting retries with a new instance', () => {
+    const { elements, instances, click, select } = setup();
+    click('startButton');
+    instances[0].emit('error', { fatal: false });
+    assert.equal(elements.playerStatus.textContent, '');
+    instances[0].emit('error', { fatal: true });
+    assert.match(elements.playerStatus.textContent, /Unable to load/);
+    select(0);
+    assert.equal(instances[0].destroyed, true);
+    assert.equal(instances.length, 2);
+    assert.equal(elements.playerStatus.textContent, '');
+});
+
+test('Japanese and reserved characters in stream URLs reach hls.js unchanged', () => {
+    const file = '日本語の曲 +%';
+    const url = `/stream/${encodeURIComponent(file)}/playlist.m3u8`;
+    const { player, elements, instances, click } = setup({ tracks: [{ file, url }] });
+    click('startButton');
+    assert.equal(instances[0].url, url);
+    assert.equal(elements.currentTrack.textContent, `Now Playing: ${file}`);
+    instances[0].emit('ready');
+    assert.equal(player.plays, 1);
 });
 
 test('rejected playback promises are handled and can be retried', async () => {
-    const { player, elements, click } = setup({ rejectPlay: true });
+    const { player, elements, instances, click } = setup({ rejectPlay: true });
     click('startButton');
-    player.emit('canplay');
+    instances[0].emit('ready');
     await Promise.resolve();
     assert.match(elements.playerStatus.textContent, /Press Play to try again/);
     click('playPauseButton');
