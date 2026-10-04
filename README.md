@@ -1,5 +1,8 @@
 # Miniradio Server
 
+[![Gem version](https://img.shields.io/gem/v/miniradio_server)](https://rubygems.org/gems/miniradio_server)
+[![Gem downloads](https://img.shields.io/gem/dt/miniradio_server)](https://rubygems.org/gems/miniradio_server)
+
 A small Ruby/Rack server that streams existing MP3 files via HTTP Live Streaming
 (HLS). FFmpeg converts each track on its first request; later requests reuse a
 persistent disk cache. This is a VOD server, not a live radio broadcaster.
@@ -30,9 +33,10 @@ startup in the current working directory. Spaces, Japanese text, and other
 non-ASCII filenames are supported; generated stream links are URL-encoded.
 Only `.mp3` files directly inside the source directory are listed.
 
-These instructions target version **0.1.0**. Until it is published to RubyGems,
-build and install it from the source checkout using the release preparation
-commands below.
+Version **0.1.0** was published on October 4, 2026 and is available on
+[RubyGems.org](https://rubygems.org/gems/miniradio_server/versions/0.1.0).
+See the [GitHub release](https://github.com/koichiro/miniradio_server/releases/tag/v0.1.0)
+for release notes and the gem artifact, or [CHANGELOG.md](CHANGELOG.md) for changes.
 
 ```sh
 miniradio_server --mp3-dir /path/to/music --cache-dir /path/to/cache --port 9393
@@ -155,9 +159,11 @@ repeat, shuffle, seeking, and empty libraries. Include Japanese filenames and
 check macOS Safari and iOS/iPadOS Safari on actual devices; simulated player
 tests do not verify decoding or browser autoplay policies.
 
-## Release 0.1.0
+## Releasing
 
-Prepare and verify the release artifact:
+Version 0.1.0 is already published. For future releases, update
+`lib/miniradio_server/version.rb`, `Gemfile.lock`, and `CHANGELOG.md`, and use the
+new version in the artifact paths below. Prepare and verify the release artifact:
 
 ```sh
 bundle install
@@ -187,10 +193,14 @@ bundle install
 bundle exec rake release
 ```
 
-Bundler's release task builds the gem, creates the `v0.1.0` Git tag, pushes it
+Bundler's release task builds the gem, creates a `vVERSION` Git tag, pushes it
 to the Git remote, and publishes to RubyGems. The gemspec restricts publishing
 to `https://rubygems.org`. Building, running the smoke check, and opening the PR
-do not publish a gem. See [CHANGELOG.md](CHANGELOG.md) for the release contents.
+do not publish a gem. After publishing, create a GitHub release for the tag with
+release notes, the built `.gem` artifact, and its SHA256 checksum. GitHub
+Packages is a separate registry; gems published to RubyGems.org appear through
+the links and badges above, rather than in the repository's Packages sidebar.
+See [CHANGELOG.md](CHANGELOG.md) for the release contents.
 
 ## Dependency security
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0
+## 0.1.0 — 2026-10-04
 
 - Package the `miniradio_server` command, Slim templates, and player assets for
   installation with RubyGems. Support Ruby 3.4 and later.
