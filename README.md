@@ -6,7 +6,7 @@ persistent disk cache. This is a VOD server, not a live radio broadcaster.
 
 The web player uses one audio element and loads streams only when selected.
 It supports continuous playback, play/pause, previous/next, repeat track, and
-shuffle. Safari uses native HLS; other compatible browsers use hls.js.
+shuffle. All compatible browsers, including Safari, use hls.js for HLS playback.
 
 ## Requirements
 
@@ -48,6 +48,18 @@ FFmpeg command, segment duration, and logger. Requiring the library does not
 start a server.
 
 ## Playback
+
+The player loads hls.js 1.x from the CDN and requires Media Source Extensions
+(MSE) or Managed Media Source (MMS) with support for the stream's audio codec.
+According to [hls.js compatibility documentation](https://github.com/video-dev/hls.js#compatibility),
+Safari targets include macOS Safari 10+ (macOS 10.11+), iPadOS Safari 13+,
+and iOS Safari 17.1+ (MMS requires hls.js 1.5.0+). These are library targets;
+actual MP3 playback must also be checked on the target device. Older iPhones
+without MMS cannot use this player, even if they support native HLS.
+The player checks `Hls.isSupported()` and displays an error if hls.js is
+unsupported or fails to load; there is no native HLS fallback.
+Remote playback (including AirPlay) is disabled to allow
+[Safari MMS playback without a native alternative](https://webkit.org/blog/14735/webkit-features-in-safari-17-1/).
 
 - **Play all** starts at the first track and can restart a finished playlist.
 - Each row has a keyboard-accessible play button.
@@ -113,10 +125,12 @@ Open `coverage/index.html` for the HTML report or read `coverage/coverage.json`
 for machine-readable results. GitHub Actions runs the same lint/coverage checks
 on Ruby 3.4 and 4.0.7 and uploads each coverage report as an artifact, including
 when tests or the coverage threshold fail.
-Player tests cover control behavior and native/HLS.js readiness using simulated
-DOM/media APIs. Before releasing, also check actual playback in Safari and
-Chrome: initial play, rapid track changes, next-track autoplay, pause/resume,
-repeat, shuffle, seeking, and empty libraries.
+Player tests cover control behavior, hls.js readiness, native-capable browsers,
+unavailable hls.js, and URL-encoded Japanese filenames using simulated DOM/media
+APIs. Before releasing, also check actual playback in Safari and Chrome: initial play, rapid track changes, next-track autoplay, pause/resume,
+repeat, shuffle, seeking, and empty libraries. Include Japanese filenames and
+check macOS Safari and iOS/iPadOS Safari on actual devices; simulated player
+tests do not verify decoding or browser autoplay policies.
 
 For a local installed-gem check, run `gem install pkg/miniradio_server-0.0.4.gem`
 and invoke `miniradio_server --version` from outside the checkout. To release,
