@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
-require 'rack'
-require 'open3' # Used in convert_to_hls
-require 'tilt/slim'
-require 'mp3info'
-require 'json'
-require 'uri'
-require 'uri/rfc2396_parser'
+require "rack"
+require "open3" # Used in convert_to_hls
+require "tilt/slim"
+require "mp3info"
+require "json"
+require "uri"
+require "uri/rfc2396_parser"
 
 # Required to use the handler from Rack 3+
 # You might need to run: gem install rackup
-require 'rackup/handler/webrick'
+require "rackup/handler/webrick"
 
 # Rack application class
 module MiniradioServer
@@ -29,13 +28,13 @@ module MiniradioServer
     end
 
     def call(env)
-      request_path = env['PATH_INFO']
+      request_path = env["PATH_INFO"]
       @logger.info "Request received: #{request_path}"
 
       # Root URL
       match = request_path.match(%r{^/$|^/index(\.html)$})
       if match
-        return response(200, index, 'text/html')
+        return response(200, index, "text/html")
       end
 
       # Path pattern: /stream/{mp3_basename}/{playlist or segment}
@@ -50,11 +49,11 @@ module MiniradioServer
       mp3_basename = URL_PARSER.unescape(match[1]).force_encoding(Encoding::UTF_8)
       requested_filename = match[2] # e.g., "playlist.m3u8" or "segment001.mp3"
       extension = match[3].downcase # "m3u8" or "mp3"
-      return not_found_response if extension == 'm3u8' && requested_filename != 'playlist.m3u8'
+      return not_found_response if extension == "m3u8" && requested_filename != "playlist.m3u8"
 
       # --- Check if the original MP3 file exists ---
       # Security: Check for directory traversal in basename
-      if !mp3_basename.valid_encoding? || mp3_basename.include?("\0") || mp3_basename.include?('..') || mp3_basename.include?('/') || mp3_basename.include?('\\')
+      if !mp3_basename.valid_encoding? || mp3_basename.include?("\0") || mp3_basename.include?("..") || mp3_basename.include?("/") || mp3_basename.include?("\\")
         @logger.warn "Invalid MP3 base name requested: #{mp3_basename}"
         return forbidden_response("Invalid filename.")
       end
@@ -78,7 +77,7 @@ module MiniradioServer
       end
 
       # --- Process based on request type ---
-      if extension == 'm3u8'
+      if extension == "m3u8"
         # M3U8 request: Check if conversion is needed, convert if necessary, and serve
         ensure_hls_converted(original_mp3_path, cache_subdir, hls_playlist_path) do |status, message|
           case status
@@ -91,31 +90,30 @@ module MiniradioServer
             return internal_server_error_response(message || "HLS conversion failed.")
           end
         end
-      elsif extension == 'mp3'
+      elsif extension == "mp3"
         # MP3 segment request: Serve from cache (404 if not found)
         # Normally, the m3u8 is requested first, so the cache should exist
         if requested_cache_file_path.exist? && requested_cache_file_path.file?
-          return serve_file(requested_cache_file_path)
+          serve_file(requested_cache_file_path)
         else
           # Segment request might come before m3u8, or an invalid request after conversion failure
           @logger.warn "Segment file not found (cache not generated or invalid request?): #{requested_cache_file_path}"
           # For simplicity, return 404. A more robust check might verify parent conversion status.
-          return not_found_response("Not Found (Segment)")
+          not_found_response("Not Found (Segment)")
         end
       else
         # Should not reach here
         @logger.error "Unexpected file extension: #{extension}"
-        return internal_server_error_response
+        internal_server_error_response
       end
-
     rescue SystemCallError => e # File access related errors (ENOENT, EACCES, etc.)
       @logger.error "File access error: #{e.message}"
       # Return 404 or 500 depending on the context
-      return not_found_response("Resource not found or access denied")
+      not_found_response("Resource not found or access denied")
     rescue => e
       @logger.error "Unexpected error occurred: #{e.message}"
       @logger.error e.backtrace.join("\n")
-      return internal_server_error_response
+      internal_server_error_response
     end
 
     def get_mp3_list
@@ -135,11 +133,11 @@ module MiniradioServer
       end
       r
     end
-  
+
     def index
       template = Tilt::SlimTemplate.new("#{__dir__}/templ/index.html.slim")
       # JSON is data, but HTML still recognizes closing script tags inside it.
-      tracks_json = JSON.generate(get_mp3_list).gsub('<', '\\u003c').gsub('>', '\\u003e').gsub('&', '\\u0026')
+      tracks_json = JSON.generate(get_mp3_list).gsub("<", '\\u003c').gsub(">", '\\u003e').gsub("&", '\\u0026')
       template.render(self, tracks_json: tracks_json)
     end
 
@@ -160,7 +158,7 @@ module MiniradioServer
     # Check if HLS conversion is needed and execute if necessary (with lock)
     # Yields the status (:ok, :already_exists, :converting, :error) and an optional message to the block
     def ensure_hls_converted(input_mp3_path, output_dir, playlist_path)
-      mp3_basename = input_mp3_path.basename('.mp3').to_s
+      mp3_basename = input_mp3_path.basename(".mp3").to_s
       lock = @locks_mutex.synchronize { @conversion_locks[mp3_basename] }
 
       # Check if the converted file already exists (check outside lock for speed)
@@ -198,7 +196,6 @@ module MiniradioServer
       end
     end
 
-
     # Convert MP3 file to HLS format (execute ffmpeg)
     # Returns: [Boolean (success/failure), String (error message or nil)]
     def convert_to_hls(input_mp3_path, output_dir)
@@ -211,18 +208,18 @@ module MiniradioServer
       # Build the ffmpeg command (using an array is safer for paths with spaces)
       cmd = [
         @ffmpeg_cmd,
-        '-y',                               # Overwrite existing files (just in case)
-        '-i', input_mp3_path.to_s,
-        '-c:a', 'copy',                     # Copy audio codec (no re-encoding)
-        '-f', 'hls',
-        '-hls_time', @segment_duration.to_s,
-        '-hls_list_size', '0',              # VOD (include all segments in the list)
-        '-hls_playlist_type', 'vod',        # Specify VOD playlist type
-        '-hls_segment_filename', segment_path_template.to_s,
+        "-y",                               # Overwrite existing files (just in case)
+        "-i", input_mp3_path.to_s,
+        "-c:a", "copy",                     # Copy audio codec (no re-encoding)
+        "-f", "hls",
+        "-hls_time", @segment_duration.to_s,
+        "-hls_list_size", "0",              # VOD (include all segments in the list)
+        "-hls_playlist_type", "vod",        # Specify VOD playlist type
+        "-hls_segment_filename", segment_path_template.to_s,
         playlist_path.to_s
       ]
 
-      @logger.info "Executing command: #{cmd.join(' ')}"
+      @logger.info "Executing command: #{cmd.join(" ")}"
 
       # Execute command (capture standard output, standard error, and status)
       _stdout, stderr, status = Open3.capture3(*cmd)
@@ -240,16 +237,15 @@ module MiniradioServer
       end
 
       # Log warnings from stderr even on success (if necessary), ignoring common deprecation warnings
-      unless stderr.empty? || stderr.strip.downcase.include?('deprecated')
+      unless stderr.empty? || stderr.strip.downcase.include?("deprecated")
         @logger.warn "ffmpeg stderr (on success): #{stderr.strip}"
       end
 
-      return [true, nil]
-
+      [true, nil]
     rescue Errno::ENOENT => e # Command not found, etc.
       error_message = "Error occurred during ffmpeg command preparation: #{e.message}"
       @logger.error error_message
-      return [false, error_message]
+      [false, error_message]
     rescue => e # Catch other exceptions around ffmpeg execution
       error_message = "Unexpected error occurred during ffmpeg execution: #{e.message}"
       @logger.error error_message
@@ -259,17 +255,17 @@ module MiniradioServer
       rescue => e_rm
         @logger.error "Error occurred while deleting cache directory: #{output_dir}, Error: #{e_rm.message}"
       end
-      return [false, error_message]
+      [false, error_message]
     end
 
     # Serve the file
     def serve_file(file_path)
       extension = file_path.extname.downcase
       content_type = case extension
-      when '.m3u8'
-        'application/vnd.apple.mpegurl' # Or 'audio/mpegurl'
-      when '.mp3'
-        'audio/mpeg'
+      when ".m3u8"
+        "application/vnd.apple.mpegurl" # Or 'audio/mpegurl'
+      when ".mp3"
+        "audio/mpeg"
       else
         @logger.warn "Serving attempt: Unsupported file type: #{file_path}"
         return forbidden_response("Unsupported file type.")
@@ -292,16 +288,15 @@ module MiniradioServer
         return internal_server_error_response("Failed to get file size")
       end
 
-
       headers = {
-        'content-type' => content_type,
-        'content-length' => file_size.to_s,
-        'access-control-allow-origin' => '*', # CORS header
+        "content-type" => content_type,
+        "content-length" => file_size.to_s,
+        "access-control-allow-origin" => "*", # CORS header
         # For HLS, it's often safer not to cache (especially for live streams)
         # For VOD, caching might be okay, but we'll disable it here for simplicity
-        'cache-control' => 'no-cache, no-store, must-revalidate',
-        'pragma' => 'no-cache',
-        'expires' => '0'
+        "cache-control" => "no-cache, no-store, must-revalidate",
+        "pragma" => "no-cache",
+        "expires" => "0"
       }
 
       @logger.info "Serving: #{file_path} (#{content_type}, #{file_size} bytes)"
@@ -309,7 +304,7 @@ module MiniradioServer
       # Return the File object as the response body (Rack handles streaming efficiently)
       begin
         # Open in binary mode
-        file_body = file_path.open('rb')
+        file_body = file_path.open("rb")
         [200, headers, file_body]
       rescue SystemCallError => e # Error during file opening
         @logger.error "Failed to open file: #{file_path}, Error: #{e.message}"
@@ -319,10 +314,10 @@ module MiniradioServer
     end
 
     # --- HTTP Status Code Response Methods ---
-    def response(status, message, content_type = 'text/plain', extra_headers = {})
+    def response(status, message, content_type = "text/plain", extra_headers = {})
       headers = {
-        'content-type' => content_type,
-        'access-control-allow-origin' => '*'
+        "content-type" => content_type,
+        "access-control-allow-origin" => "*"
       }.merge(extra_headers)
       # Returning the body as an array is the Rack specification
       [status, headers, [message + "\n"]]
@@ -342,7 +337,7 @@ module MiniradioServer
 
     def service_unavailable_response(message = "Service Unavailable")
       # Add Retry-After header suggesting a retry after 5 seconds
-      response(503, message, 'text/plain', { 'retry-after' => '5' })
+      response(503, message, "text/plain", {"retry-after" => "5"})
     end
   end
 end

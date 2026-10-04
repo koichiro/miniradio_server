@@ -1,4 +1,4 @@
-name: Tests
+name: Quality checks
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ruby: ['3.1', '3.4', '4.0']
+        ruby: ['3.4', '4.0.7']
     steps:
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1
@@ -26,8 +26,20 @@ jobs:
           node-version: '22'
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Test Ruby, HLS conversion, and player logic
-        run: bundle exec rake check
+      - name: Lint with Standard
+        run: bundle exec rake lint
+      - name: Test Ruby with 90% coverage and player logic
+        id: tests
+        run: bundle exec rake test test_player
+      - name: Upload coverage report
+        if: always() && steps.tests.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-ruby-${{ matrix.ruby }}
+          path: coverage/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
       - name: Build and install the gem
         run: |
           bundle exec rake build
