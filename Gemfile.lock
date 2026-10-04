@@ -15,6 +15,9 @@ GEM
   remote: https://rubygems.org/
   specs:
     ast (2.4.3)
+    bundler-audit (0.9.3)
+      bundler (>= 1.2.0)
+      thor (~> 1.0)
     date (3.4.1)
     docile (1.4.1)
     io-console (0.8.0)
@@ -95,6 +98,7 @@ GEM
       rubocop-performance (~> 1.26.0)
     stringio (3.1.6)
     temple (0.10.3)
+    thor (1.5.0)
     tilt (2.6.0)
     unicode-display_width (3.3.0)
       unicode-emoji (~> 4.3)
@@ -106,6 +110,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
+  bundler-audit (~> 0.9)
   irb
   miniradio_server!
   minitest (~> 5.16)

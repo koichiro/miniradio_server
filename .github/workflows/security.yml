@@ -1,0 +1,27 @@
+name: Dependency security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Daily at 06:17 Asia/Tokyo; catches new advisories without code changes.
+    - cron: '17 21 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit locked Ruby dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0.7'
+          bundler-cache: true
+      - name: Update advisory database and audit all locked gems
+        run: bundle exec rake audit
