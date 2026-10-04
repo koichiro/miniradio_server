@@ -103,7 +103,7 @@ GEM
     unicode-display_width (3.3.0)
       unicode-emoji (~> 4.3)
     unicode-emoji (4.3.0)
-    webrick (1.9.1)
+    webrick (1.9.2)
 
 PLATFORMS
   arm64-darwin-24
