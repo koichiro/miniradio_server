@@ -102,6 +102,24 @@ to regenerate it. Cache invalidation, size limits, and eviction are manual.
   receive HTTP 503 with `retry-after: 5`; conversion locks are per process.
 - Corrupt or unsupported audio may fail playback even if the track is listed.
 
+## Development
+
+Install the requirements above, Bundler, and Node.js 18 or later for the player
+tests, then set up a local checkout:
+
+```sh
+git clone https://github.com/koichiro/miniradio_server.git
+cd miniradio_server
+bin/setup
+mkdir -p mp3_files
+# Copy sample .mp3 files into mp3_files, then:
+bin/miniradio_server
+```
+
+Open <http://localhost:9292/> to try your changes. Before submitting a pull
+request, run `bundle exec rake` to check Ruby style and run the Ruby and player
+tests.
+
 ## Contributing and license
 
 Bug reports and pull requests are welcome on
