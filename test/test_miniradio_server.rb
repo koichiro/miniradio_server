@@ -1,98 +1,248 @@
 # frozen_string_literal: true
 
-require "test_helper"
+require 'test_helper'
+require 'tmpdir'
+require 'stringio'
+require 'rack/lint'
+require 'timeout'
+require 'minitest/mock'
+require 'miniradio_server/cli'
 
 class TestMiniradioServer < Minitest::Test
-  # Create a temporary directory before running tests
   def setup
-    @tmp_dir = File.expand_path('../tmp_test_dirs', __dir__)
-    FileUtils.mkdir_p(@tmp_dir)
-    # Point constants to the temporary directory (keep original values)
-    @original_mp3_src_dir = MiniradioServer.send(:remove_const, :MP3_SRC_DIR) if defined?(MiniradioServer::MP3_SRC_DIR)
-    @original_hls_cache_dir = MiniradioServer.send(:remove_const, :HLS_CACHE_DIR) if defined?(MiniradioServer::HLS_CACHE_DIR)
-    MiniradioServer.const_set(:MP3_SRC_DIR, File.join(@tmp_dir, 'mp3_files'))
-    MiniradioServer.const_set(:HLS_CACHE_DIR, File.join(@tmp_dir, 'hls_cache'))
-    @dummy_logger = Logger.new(IO::NULL)
+    @tmp_dir = Dir.mktmpdir('miniradio-test')
+    @mp3_dir = File.join(@tmp_dir, 'mp3')
+    @cache_dir = File.join(@tmp_dir, 'cache')
+    @logger = Logger.new(IO::NULL)
+    MiniradioServer.ensure_directories_exist([@mp3_dir, @cache_dir], @logger)
+    FileUtils.cp(File.join(__dir__, 'sample/eine.mp3'), File.join(@mp3_dir, 'song.mp3'))
+    @app = MiniradioServer::App.new(@mp3_dir, @cache_dir, 'ffmpeg', 10, @logger)
   end
 
-  # Delete the temporary directory after running tests and restore constants
   def teardown
-    FileUtils.rm_rf(@tmp_dir)
-    # Restore constants
-    MiniradioServer.send(:remove_const, :MP3_SRC_DIR)
-    MiniradioServer.send(:remove_const, :HLS_CACHE_DIR)
-    MiniradioServer.const_set(:MP3_SRC_DIR, @original_mp3_src_dir) if @original_mp3_src_dir
-    MiniradioServer.const_set(:HLS_CACHE_DIR, @original_hls_cache_dir) if @original_hls_cache_dir
+    FileUtils.remove_entry(@tmp_dir)
   end
 
-  def test_that_it_has_a_version_number
-    refute_nil ::MiniradioServer::VERSION
-  end
-
-  def test_constants_are_defined
-    # Whether they are defined is evaluated at require time, so here we check the values after redefinition
-    assert_equal File.join(@tmp_dir, 'mp3_files'), MiniradioServer::MP3_SRC_DIR
-    assert_equal File.join(@tmp_dir, 'hls_cache'), MiniradioServer::HLS_CACHE_DIR
-    # Other constants are not changed in setup/teardown, so check them as they are
-    assert defined?(MiniradioServer::SERVER_PORT)
-    assert defined?(MiniradioServer::FFMPEG_COMMAND)
-    assert defined?(MiniradioServer::HLS_SEGMENT_DURATION)
-  end
-
-  def test_directories_are_created_if_not_exist
-    # Confirm that the directories do not exist
-    refute Dir.exist?(MiniradioServer::MP3_SRC_DIR), "MP3_SRC_DIR should not exist before test"
-    refute Dir.exist?(MiniradioServer::HLS_CACHE_DIR), "HLS_CACHE_DIR should not exist before test"
-
-    # Call the refactored method directly
-    # Use a dummy logger to suppress log output during tests
-    MiniradioServer.ensure_directories_exist(
-      [MiniradioServer::MP3_SRC_DIR, MiniradioServer::HLS_CACHE_DIR],
-      @dummy_logger
-    )
-
-    assert Dir.exist?(MiniradioServer::MP3_SRC_DIR), "MP3_SRC_DIR should be created by ensure_directories_exist"
-    assert Dir.exist?(MiniradioServer::HLS_CACHE_DIR), "HLS_CACHE_DIR should be created by ensure_directories_exist"
-  end
-
-  def test_generete_index
-    MiniradioServer.ensure_directories_exist(
-      [MiniradioServer::MP3_SRC_DIR, MiniradioServer::HLS_CACHE_DIR],
-      @dummy_logger
-    )
-
-    # Copy sample mp3
-    FileUtils.cp(Dir.glob("#{__dir__}/sample/*.mp3"), File.join(@tmp_dir, 'mp3_files'))
-
-    app = MiniradioServer::App.new(
-      MiniradioServer::MP3_SRC_DIR,
-      MiniradioServer::HLS_CACHE_DIR,
-      MiniradioServer::FFMPEG_COMMAND,
-      MiniradioServer::HLS_SEGMENT_DURATION,
-      @dummy_logger
-    )
-    assert_equal app.index, <<EOS.chomp
-<!DOCTYPE html><html><head><meta charset=\"UTF-8\" /><meta content=\"width=device-width, initial-scale=1.0\" name=\"viewport\" /><title>Miniradio Server</title><link href=\"https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css\" rel=\"stylesheet\" type=\"text/css\" /><link href=\"style/main.css\" rel=\"stylesheet\" type=\"text/css\" /><script src=\"https://cdn.jsdelivr.net/npm/hls.js@1\"></script></head><body><h1>Straming List</h1><table class=\"compact striped\"><thead><tr><th scope=\"col\">Play</th><th scope=\"col\">Title</th><th scope=\"col\">Artist</th><th scope=\"col\">Album</th></tr></thead><tbody><tr><td><audio controls=\"\" id=\"audio-1\"></audio></td><td>eine 01</td><td></td><td></td></tr><tr><td><audio controls=\"\" id=\"audio-2\"></audio></td><td>eine</td><td></td><td></td></tr><tr><td><audio controls=\"\" id=\"audio-3\"></audio></td><td>アイネクライネ</td><td></td><td></td></tr></tbody></table><script>function setupHLS(audioElementId, streamUrl) {
-    const audio = document.getElementById(audioElementId);
-
-    if (Hls.isSupported()) {
-        const hls = new Hls();
-        hls.loadSource(streamUrl);
-        hls.attachMedia(audio);
-        hls.on(Hls.Events.MANIFEST_PARSED, function () {
-            console.log(`${audioElementId} loaded`);
-        });
-    } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
-        // HLS native support browser. ex.Safari
-        audio.src = streamUrl;
-    } else {
-        console.error('This browser cannot play HLS.');
+  # Consume every response through Rack::Lint, including streamed file bodies.
+  def request(path, app = @app)
+    env = {
+      'REQUEST_METHOD' => 'GET', 'SCRIPT_NAME' => '', 'PATH_INFO' => path,
+      'QUERY_STRING' => '', 'SERVER_NAME' => 'localhost', 'SERVER_PORT' => '9292',
+      'SERVER_PROTOCOL' => 'HTTP/1.1', 'rack.url_scheme' => 'http',
+      'rack.input' => StringIO.new(''.b), 'rack.errors' => StringIO.new
     }
-}
-var mp3s = [{\"title\":null,\"artist\":null,\"album\":null,\"file\":\"eine 01\"},{\"title\":null,\"artist\":null,\"album\":null,\"file\":\"eine\"},{\"title\":null,\"artist\":null,\"album\":null,\"file\":\"アイネクライネ\"}];
-for (let i = 0; i < mp3s.length; i++) {
-    setupHLS(`audio-${i+1}`, `/stream/${mp3s[i].file}/playlist.m3u8`);
-}</script><hr /><p>Miniradio ver 0.0.3</p></body></html>
-EOS
+    status, headers, body = Rack::Lint.new(app).call(env)
+    text = ''.b
+    body.each { |part| text << part }
+    [status, headers, text]
+  ensure
+    body.close if body.respond_to?(:close)
+  end
+
+  def write_cache(name = 'song')
+    dir = File.join(@cache_dir, name)
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, 'playlist.m3u8'), "#EXTM3U\nsegment000.mp3\n")
+    File.binwrite(File.join(dir, 'segment000.mp3'), "\x00\xffsegment".b)
+    dir
+  end
+
+  def test_directories_are_created
+    new_dirs = %w[source nested/cache].map { |name| File.join(@tmp_dir, name) }
+    MiniradioServer.ensure_directories_exist(new_dirs, @logger)
+    new_dirs.each { |dir| assert Dir.exist?(dir) }
+  end
+
+  def test_index_has_current_controls_and_safe_track_data
+    status, headers, html = request('/')
+    assert_equal 200, status
+    assert_equal 'text/html', headers['content-type']
+    assert_includes html, "Miniradio ver #{MiniradioServer::VERSION}"
+    assert_match(/<audio[^>]*controls=/, html)
+    %w[startButton playPauseButton prevButton nextButton loopButton shuffleButton].each do |id|
+      assert_includes html, "id=\"#{id}\""
+    end
+    assert_includes html, 'src="/player.js"'
+    tracks = JSON.parse(html.match(/<script[^>]*id="tracks"[^>]*>(.*?)<\/script>/m)[1])
+    assert_equal 'song', tracks.first['file']
+    assert_equal '/stream/song/playlist.m3u8', tracks.first['url']
+    assert_equal 200, request('/index.html').first
+  end
+
+  def test_track_data_cannot_close_the_script_element
+    title = '</script><img src=x onerror=alert(1)>'
+    tracks = [{ title: title, file: 'song', url: '/stream/song/playlist.m3u8' }]
+    @app.stub(:get_mp3_list, tracks) do
+      html = request('/').last
+      refute_includes html, title
+      assert_includes html, '\\u003c/script\\u003e'
+      json = html.match(/<script[^>]*id="tracks"[^>]*>(.*?)<\/script>/m)[1]
+      assert_equal title, JSON.parse(json).first['title']
+    end
+  end
+
+  def test_filenames_round_trip_without_form_encoding
+    %w[eine\ 01 アイネクライネ plus+percent%].each do |name|
+      FileUtils.cp(File.join(@mp3_dir, 'song.mp3'), File.join(@mp3_dir, "#{name}.mp3"))
+      write_cache(name)
+      track = @app.get_mp3_list.find { |item| item[:file] == name }
+      refute_match(/[ +]/, track[:url])
+      assert_equal 200, request(track[:url]).first
+    end
+  end
+
+  def test_cache_hit_does_not_run_ffmpeg_and_serves_binary_segments
+    write_cache
+    Open3.stub(:capture3, ->(*) { flunk 'Cached requests must not run FFmpeg' }) do
+      assert_equal 200, request('/stream/song/playlist.m3u8').first
+      status, headers, body = request('/stream/song/segment000.mp3')
+      assert_equal 200, status
+      assert_equal 'audio/mpeg', headers['content-type']
+      assert_equal body.bytesize.to_s, headers['content-length']
+      assert_equal "\x00\xffsegment".b, body
+    end
+  end
+
+  def test_conversion_runs_once_then_uses_cache
+    calls = 0
+    converter = lambda do |*cmd|
+      calls += 1
+      assert_equal 'ffmpeg', cmd.first
+      assert_equal File.realpath(File.join(@mp3_dir, 'song.mp3')), cmd[cmd.index('-i') + 1]
+      write_cache
+      ['', '', Struct.new(:success?).new(true)]
+    end
+    Open3.stub(:capture3, converter) do
+      2.times { assert_equal 200, request('/stream/song/playlist.m3u8').first }
+    end
+    assert_equal 1, calls
+  end
+
+  def test_failed_conversion_cleans_cache_and_can_retry
+    Open3.stub(:capture3, lambda { |*|
+      write_cache
+      ['', 'conversion failed', Struct.new(:success?, :exitstatus).new(false, 1)]
+    }) do
+      assert_equal 500, request('/stream/song/playlist.m3u8').first
+    end
+    refute Dir.exist?(File.join(@cache_dir, 'song'))
+    Open3.stub(:capture3, lambda { |*|
+      write_cache
+      ['', '', Struct.new(:success?).new(true)]
+    }) do
+      assert_equal 200, request('/stream/song/playlist.m3u8').first
+    end
+  end
+
+  def test_concurrent_request_gets_retry_after_and_only_one_conversion
+    started = Queue.new
+    finish = Queue.new
+    worker = nil
+    Open3.stub(:capture3, lambda { |*|
+      started << true
+      finish.pop
+      write_cache
+      ['', '', Struct.new(:success?).new(true)]
+    }) do
+      worker = Thread.new { request('/stream/song/playlist.m3u8') }
+      Timeout.timeout(5) { started.pop }
+      status, headers, = request('/stream/song/playlist.m3u8')
+      assert_equal 503, status
+      assert_equal '5', headers['retry-after']
+      finish << true
+      assert_equal 200, worker.value.first
+    end
+  ensure
+    finish << true if finish
+    worker&.join
+  end
+
+  def test_missing_ffmpeg_returns_server_error
+    Open3.stub(:capture3, ->(*) { raise Errno::ENOENT, 'ffmpeg' }) do
+      assert_equal 500, request('/stream/song/playlist.m3u8').first
+    end
+  end
+
+  def test_invalid_and_missing_paths
+    ['/missing', '/stream/missing/playlist.m3u8', '/stream/song/segment999.mp3', '/stream/song/other.m3u8'].each do |path|
+      assert_equal 404, request(path).first
+    end
+    ['/stream/%2E%2E/playlist.m3u8', '/stream/a%2Fb/playlist.m3u8', '/stream/a%00b/playlist.m3u8', '/stream/%FF/playlist.m3u8', '/stream/song/../../outside.mp3'].each do |path|
+      assert_equal 403, request(path).first
+    end
+  end
+
+  def test_symlinks_cannot_escape_source_or_cache
+    outside = File.join(@tmp_dir, 'outside.mp3')
+    FileUtils.cp(File.join(@mp3_dir, 'song.mp3'), outside)
+    File.symlink(outside, File.join(@mp3_dir, 'outside.mp3'))
+    assert_equal 403, request('/stream/outside/playlist.m3u8').first
+    refute @app.get_mp3_list.any? { |track| track[:file] == 'outside' }
+    dir = write_cache
+    File.unlink(File.join(dir, 'segment000.mp3'))
+    File.symlink(outside, File.join(dir, 'segment000.mp3'))
+    assert_equal 403, request('/stream/song/segment000.mp3').first
+    File.unlink(File.join(dir, 'playlist.m3u8'))
+    File.symlink(outside, File.join(dir, 'playlist.m3u8'))
+    assert_equal 403, request('/stream/song/playlist.m3u8').first
+    FileUtils.rm_rf(dir)
+    File.symlink(@tmp_dir, dir)
+    assert_equal 403, request('/stream/song/playlist.m3u8').first
+  end
+
+  def test_static_assets_are_available
+    app = Rack::Static.new(@app, urls: ['/style', '/player.js'], root: File.expand_path('../lib/public', __dir__))
+    ['/player.js', '/style/main.css'].each { |path| assert_equal 200, request(path, app).first }
+  end
+
+  def test_cli_help_and_version_do_not_start_server
+    out = StringIO.new
+    assert_equal 0, MiniradioServer::CLI.run(['--version'], out: out)
+    assert_equal "#{MiniradioServer::VERSION}\n", out.string
+    out = StringIO.new
+    assert_equal 0, MiniradioServer::CLI.run(['--help'], out: out)
+    assert_includes out.string, '--mp3-dir'
+    assert_equal 1, MiniradioServer::CLI.run(['--port', '0'], err: StringIO.new)
+    assert_equal 1, MiniradioServer::CLI.run(['unexpected'], err: StringIO.new)
+  end
+
+  def test_cli_starts_with_configured_directories_port_and_assets
+    out = StringIO.new
+    runner = lambda do |app, **options|
+      assert_equal 9393, options[:Port]
+      assert_equal 200, request('/player.js', app).first
+      assert_equal 200, request('/', app).first
+    end
+    Rackup::Handler::WEBrick.stub(:run, runner) do
+      assert_equal 0, MiniradioServer::CLI.run(['--mp3-dir', @mp3_dir, '--cache-dir', @cache_dir, '--port', '9393'], out: out)
+    end
+    assert_includes out.string, 'http://localhost:9393'
+  end
+
+  def test_gem_packages_executable_templates_and_assets
+    spec = Gem::Specification.load(File.expand_path('../miniradio_server.gemspec', __dir__))
+    assert_equal ['miniradio_server'], spec.executables
+    %w[exe/miniradio_server lib/miniradio_server/cli.rb lib/miniradio_server/templ/index.html.slim lib/public/player.js lib/public/style/main.css].each do |path|
+      assert_includes spec.files, path
+    end
+    refute spec.files.any? { |path| path.start_with?('test/', 'bin/') }
+  end
+
+  def test_real_ffmpeg_converts_filenames_and_reuses_cache
+    skip 'FFmpeg is not installed' unless system('ffmpeg', '-version', out: File::NULL, err: File::NULL)
+    ['song', 'space song', 'アイネクライネ', 'plus+percent%'].each do |name|
+      FileUtils.cp(File.join(@mp3_dir, 'song.mp3'), File.join(@mp3_dir, "#{name}.mp3")) unless name == 'song'
+      url = @app.get_mp3_list.find { |track| track[:file] == name }[:url]
+      status, headers, playlist = request(url)
+      assert_equal 200, status
+      assert_equal 'application/vnd.apple.mpegurl', headers['content-type']
+      assert_includes playlist, '#EXT-X-ENDLIST'
+      segment = playlist.lines.map(&:strip).find { |line| line.end_with?('.mp3') }
+      assert_equal 200, request(url.sub('playlist.m3u8', segment)).first
+      path = File.join(@cache_dir, name, 'playlist.m3u8')
+      mtime = File.mtime(path)
+      assert_equal playlist, request(url).last
+      assert_equal mtime, File.mtime(path)
+    end
   end
 end

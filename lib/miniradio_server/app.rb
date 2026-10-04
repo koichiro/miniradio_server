@@ -4,6 +4,8 @@ require 'open3' # Used in convert_to_hls
 require 'tilt/slim'
 require 'mp3info'
 require 'json'
+require 'uri'
+require 'uri/rfc2396_parser'
 
 # Required to use the handler from Rack 3+
 # You might need to run: gem install rackup
@@ -12,6 +14,9 @@ require 'rackup/handler/webrick'
 # Rack application class
 module MiniradioServer
   class App
+    URL_PARSER = URI::RFC2396_Parser.new
+    private_constant :URL_PARSER
+
     def initialize(mp3_dir, cache_dir, ffmpeg_cmd, segment_duration, logger)
       @mp3_dir = Pathname.new(mp3_dir).realpath
       @cache_dir = Pathname.new(cache_dir).realpath
@@ -20,6 +25,7 @@ module MiniradioServer
       @logger = logger
       # For managing locks during conversion processing (using Mutex per file)
       @conversion_locks = Hash.new { |h, k| h[k] = Mutex.new } # Mutex is built-in, no require needed
+      @locks_mutex = Mutex.new
     end
 
     def call(env)
@@ -41,17 +47,19 @@ module MiniradioServer
         return not_found_response("Not Found (Invalid Path Format)")
       end
 
-      mp3_basename = URI.decode_uri_component(match[1]) # e.g., "your_music" (without extension)
+      mp3_basename = URL_PARSER.unescape(match[1]).force_encoding(Encoding::UTF_8)
       requested_filename = match[2] # e.g., "playlist.m3u8" or "segment001.mp3"
       extension = match[3].downcase # "m3u8" or "mp3"
+      return not_found_response if extension == 'm3u8' && requested_filename != 'playlist.m3u8'
 
       # --- Check if the original MP3 file exists ---
       # Security: Check for directory traversal in basename
-      if mp3_basename.include?('..') || mp3_basename.include?('/')
+      if !mp3_basename.valid_encoding? || mp3_basename.include?("\0") || mp3_basename.include?('..') || mp3_basename.include?('/') || mp3_basename.include?('\\')
         @logger.warn "Invalid MP3 base name requested: #{mp3_basename}"
         return forbidden_response("Invalid filename.")
       end
       original_mp3_path = @mp3_dir.join("#{mp3_basename}.mp3")
+      return forbidden_response("Access denied.") unless within_directory?(original_mp3_path, @mp3_dir)
 
       unless original_mp3_path.exist? && original_mp3_path.file?
         @logger.warn "Original MP3 file not found: #{original_mp3_path}"
@@ -63,9 +71,8 @@ module MiniradioServer
       hls_playlist_path = cache_subdir.join("playlist.m3u8")
       requested_cache_file_path = cache_subdir.join(requested_filename)
 
-      # Security: Check if the requested cache file path is within the cache subdirectory
-      # Use string comparison as realpath fails if the file doesn't exist yet
-      unless requested_cache_file_path.to_s.start_with?(cache_subdir.to_s + File::SEPARATOR) || requested_cache_file_path == hls_playlist_path
+      # Check lexical paths and resolved ancestors, including symlinks.
+      unless within_directory?(cache_subdir, @cache_dir) && within_directory?(requested_cache_file_path, cache_subdir)
         @logger.warn "Attempted access outside cache directory: #{requested_cache_file_path}"
         return forbidden_response("Access denied.")
       end
@@ -114,13 +121,15 @@ module MiniradioServer
     def get_mp3_list
       r = []
       @mp3_dir.glob("*.mp3").each do |file|
+        next unless file.file? && within_directory?(file, @mp3_dir)
         mp3 = {}
         Mp3Info.open(file) do |mp3info|
           mp3[:title] = mp3info.tag.title
           mp3[:artist] = mp3info.tag.artist
           mp3[:album] = mp3info.tag.album
-          mp3[:file] = file.basename(".mp3")
-          mp3[:url] = "/stream/#{mp3[:file]}/playlist.m3u8"
+          mp3[:file] = file.basename(".mp3").to_s
+          encoded_file = URL_PARSER.escape(mp3[:file], /[^a-zA-Z0-9\-._~]/)
+          mp3[:url] = "/stream/#{encoded_file}/playlist.m3u8"
         end
         r << mp3
       end
@@ -128,17 +137,31 @@ module MiniradioServer
     end
   
     def index
-        template = Tilt::SlimTemplate.new("#{__dir__}/templ/index.html.slim")
-        template.render(self, :mp3_list => get_mp3_list)
+      template = Tilt::SlimTemplate.new("#{__dir__}/templ/index.html.slim")
+      # JSON is data, but HTML still recognizes closing script tags inside it.
+      tracks_json = JSON.generate(get_mp3_list).gsub('<', '\\u003c').gsub('>', '\\u003e').gsub('&', '\\u0026')
+      template.render(self, tracks_json: tracks_json)
     end
 
     private
+
+    # Resolve existing ancestors as well as files, so symlinks cannot escape a
+    # configured directory before conversion or when serving cached segments.
+    def within_directory?(path, directory)
+      return false unless path.to_s.start_with?(directory.to_s + File::SEPARATOR) || path == directory
+
+      ancestor = path
+      ancestor = ancestor.parent until ancestor.exist? || ancestor.symlink?
+      resolved = ancestor.realpath.join(path.relative_path_from(ancestor))
+      root = directory.exist? ? directory.realpath : directory
+      resolved == root || resolved.to_s.start_with?(root.to_s + File::SEPARATOR)
+    end
 
     # Check if HLS conversion is needed and execute if necessary (with lock)
     # Yields the status (:ok, :already_exists, :converting, :error) and an optional message to the block
     def ensure_hls_converted(input_mp3_path, output_dir, playlist_path)
       mp3_basename = input_mp3_path.basename('.mp3').to_s
-      lock = @conversion_locks[mp3_basename] # Get the Mutex specific to this file
+      lock = @locks_mutex.synchronize { @conversion_locks[mp3_basename] }
 
       # Check if the converted file already exists (check outside lock for speed)
       if playlist_path.exist?
@@ -202,7 +225,7 @@ module MiniradioServer
       @logger.info "Executing command: #{cmd.join(' ')}"
 
       # Execute command (capture standard output, standard error, and status)
-      stdout, stderr, status = Open3.capture3(*cmd)
+      _stdout, stderr, status = Open3.capture3(*cmd)
 
       unless status.success?
         error_message = "ffmpeg exited with status #{status.exitstatus}. Stderr: #{stderr.strip}"
@@ -271,14 +294,14 @@ module MiniradioServer
 
 
       headers = {
-        'Content-Type' => content_type,
-        'Content-Length' => file_size.to_s,
-        'Access-Control-Allow-Origin' => '*', # CORS header
+        'content-type' => content_type,
+        'content-length' => file_size.to_s,
+        'access-control-allow-origin' => '*', # CORS header
         # For HLS, it's often safer not to cache (especially for live streams)
         # For VOD, caching might be okay, but we'll disable it here for simplicity
-        'Cache-Control' => 'no-cache, no-store, must-revalidate',
-        'Pragma' => 'no-cache',
-        'Expires' => '0'
+        'cache-control' => 'no-cache, no-store, must-revalidate',
+        'pragma' => 'no-cache',
+        'expires' => '0'
       }
 
       @logger.info "Serving: #{file_path} (#{content_type}, #{file_size} bytes)"
@@ -298,8 +321,8 @@ module MiniradioServer
     # --- HTTP Status Code Response Methods ---
     def response(status, message, content_type = 'text/plain', extra_headers = {})
       headers = {
-        'Content-Type' => content_type,
-        'Access-Control-Allow-Origin' => '*'
+        'content-type' => content_type,
+        'access-control-allow-origin' => '*'
       }.merge(extra_headers)
       # Returning the body as an array is the Rack specification
       [status, headers, [message + "\n"]]
@@ -319,8 +342,7 @@ module MiniradioServer
 
     def service_unavailable_response(message = "Service Unavailable")
       # Add Retry-After header suggesting a retry after 5 seconds
-      response(503, message, 'text/plain', { 'Retry-After' => '5' })
+      response(503, message, 'text/plain', { 'retry-after' => '5' })
     end
   end
 end
-
