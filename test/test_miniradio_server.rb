@@ -39,12 +39,26 @@ class TestMiniradioServer < Minitest::Test
     body.close if body.respond_to?(:close)
   end
 
-  def write_cache(name = "song")
-    dir = File.join(@cache_dir, name)
-    FileUtils.mkdir_p(dir)
-    File.write(File.join(dir, "playlist.m3u8"), "#EXTM3U\nsegment000.mp3\n")
+  def hls_cache
+    @app.instance_variable_get(:@hls_cache)
+  end
+
+  def write_output(dir)
+    File.write(File.join(dir, "playlist.m3u8"), "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\nsegment000.mp3\n#EXT-X-ENDLIST\n")
     File.binwrite(File.join(dir, "segment000.mp3"), "\x00\xffsegment".b)
     dir
+  end
+
+  def write_conversion(cmd)
+    output = cmd.last.is_a?(Hash) ? cmd[-2] : cmd.last
+    write_output(File.dirname(output))
+  end
+
+  def write_cache(name = "song")
+    hls_cache.with_job do |job|
+      write_output(job.output)
+      hls_cache.publish(name, job, {ffmpeg: "ffmpeg", segment_duration: 10, audio_codec: "copy"})
+    end.directory.to_s
   end
 
   def test_directories_are_created
@@ -113,7 +127,7 @@ class TestMiniradioServer < Minitest::Test
       calls += 1
       assert_equal "ffmpeg", cmd.first
       assert_equal File.realpath(File.join(@mp3_dir, "song.mp3")), cmd[cmd.index("-i") + 1]
-      write_cache
+      write_conversion(cmd)
       ["", "", Struct.new(:success?).new(true)]
     end
     Open3.stub(:capture3, converter) do
@@ -123,15 +137,15 @@ class TestMiniradioServer < Minitest::Test
   end
 
   def test_failed_conversion_cleans_cache_and_can_retry
-    Open3.stub(:capture3, lambda { |*|
-      write_cache
+    Open3.stub(:capture3, lambda { |*cmd|
+      write_conversion(cmd)
       ["", "conversion failed", Struct.new(:success?, :exitstatus).new(false, 1)]
     }) do
       assert_equal 500, request("/stream/song/playlist.m3u8").first
     end
-    refute Dir.exist?(File.join(@cache_dir, "song"))
-    Open3.stub(:capture3, lambda { |*|
-      write_cache
+    refute hls_cache.directory("song").exist?
+    Open3.stub(:capture3, lambda { |*cmd|
+      write_conversion(cmd)
       ["", "", Struct.new(:success?).new(true)]
     }) do
       assert_equal 200, request("/stream/song/playlist.m3u8").first
@@ -142,10 +156,12 @@ class TestMiniradioServer < Minitest::Test
     started = Queue.new
     finish = Queue.new
     worker = nil
-    Open3.stub(:capture3, lambda { |*|
+    calls = 0
+    Open3.stub(:capture3, lambda { |*cmd|
+      calls += 1
+      write_conversion(cmd)
       started << true
       finish.pop
-      write_cache
       ["", "", Struct.new(:success?).new(true)]
     }) do
       worker = Thread.new { request("/stream/song/playlist.m3u8") }
@@ -153,8 +169,11 @@ class TestMiniradioServer < Minitest::Test
       status, headers, = request("/stream/song/playlist.m3u8")
       assert_equal 503, status
       assert_equal "5", headers["retry-after"]
+      assert_equal "no-store", headers["cache-control"]
+      assert_equal 404, request("/stream/song/segment000.mp3").first
       finish << true
       assert_equal 200, worker.value.first
+      assert_equal 1, calls
     end
   ensure
     finish << true if finish
@@ -167,16 +186,93 @@ class TestMiniradioServer < Minitest::Test
     end
   end
 
+  def test_successful_ffmpeg_with_invalid_output_returns_generic_error_and_can_retry
+    mutations = [
+      ->(dir) { File.unlink(File.join(dir, "playlist.m3u8")) },
+      ->(dir) { File.write(File.join(dir, "playlist.m3u8"), "") },
+      ->(dir) { File.unlink(File.join(dir, "segment000.mp3")) }
+    ]
+    mutations.each do |change|
+      Open3.stub(:capture3, lambda { |*cmd|
+        change.call(write_conversion(cmd))
+        ["", "secret stderr", Struct.new(:success?).new(true)]
+      }) do
+        status, headers, body = request("/stream/song/playlist.m3u8")
+        assert_equal 500, status
+        assert_equal "no-store", headers["cache-control"]
+        refute_includes body, "secret"
+        refute_includes body, @tmp_dir
+      end
+      refute hls_cache.directory("song").exist?
+    end
+    Open3.stub(:capture3, lambda { |*cmd|
+      write_conversion(cmd)
+      ["", "", Struct.new(:success?).new(true)]
+    }) { assert_equal 200, request("/stream/song/playlist.m3u8").first }
+  end
+
+  def test_successful_ffmpeg_without_any_output_is_not_published
+    Open3.stub(:capture3, ->(*) { ["", "", Struct.new(:success?).new(true)] }) do
+      assert_equal 500, request("/stream/song/playlist.m3u8").first
+    end
+    refute hls_cache.directory("song").exist?
+  end
+
+  def test_corrupt_completed_cache_is_not_served_and_is_regenerated
+    dir = write_cache
+    File.write(File.join(dir, "segment000.mp3"), "")
+    assert_equal 404, request("/stream/song/segment000.mp3").first
+    Open3.stub(:capture3, lambda { |*cmd|
+      write_conversion(cmd)
+      ["", "", Struct.new(:success?).new(true)]
+    }) { assert_equal 200, request("/stream/song/playlist.m3u8").first }
+    assert_equal 200, request("/stream/song/segment000.mp3").first
+  end
+
+  def test_publication_rename_failure_returns_server_error_and_can_retry
+    Open3.stub(:capture3, lambda { |*cmd|
+      write_conversion(cmd)
+      ["", "", Struct.new(:success?).new(true)]
+    }) do
+      File.stub(:rename, ->(*) { raise Errno::EXDEV }) do
+        assert_equal 500, request("/stream/song/playlist.m3u8").first
+      end
+      refute hls_cache.directory("song").exist?
+      assert_equal 200, request("/stream/song/playlist.m3u8").first
+    end
+  end
+
+  def test_legacy_cache_is_preserved_but_never_served
+    old = File.join(@cache_dir, "song")
+    FileUtils.mkdir_p(old)
+    File.write(File.join(old, "playlist.m3u8"), "old incomplete playlist")
+    File.write(File.join(old, "segment000.mp3"), "old segment")
+    assert_equal 404, request("/stream/song/segment000.mp3").first
+    Open3.stub(:capture3, lambda { |*cmd|
+      write_conversion(cmd)
+      ["", "", Struct.new(:success?).new(true)]
+    }) do
+      status, _, playlist = request("/stream/song/playlist.m3u8")
+      assert_equal 200, status
+      refute_includes playlist, "old"
+    end
+    assert_equal "old incomplete playlist", File.read(File.join(old, "playlist.m3u8"))
+    restarted = MiniradioServer::App.new(@mp3_dir, @cache_dir, "ffmpeg", 10, @logger)
+    Open3.stub(:capture3, ->(*) { flunk "Restart must reuse the completed cache" }) do
+      assert_equal 200, request("/stream/song/playlist.m3u8", restarted).first
+    end
+  end
+
   def test_unexpected_conversion_error_cleans_partial_files_and_releases_lock
-    Open3.stub(:capture3, lambda { |*|
-      write_cache
+    Open3.stub(:capture3, lambda { |*cmd|
+      write_conversion(cmd)
       raise IOError, "Unable to read FFmpeg output"
     }) do
       assert_equal 500, request("/stream/song/playlist.m3u8").first
     end
-    refute Dir.exist?(File.join(@cache_dir, "song"))
-    Open3.stub(:capture3, lambda { |*|
-      write_cache
+    refute hls_cache.directory("song").exist?
+    Open3.stub(:capture3, lambda { |*cmd|
+      write_conversion(cmd)
       ["", "", Struct.new(:success?).new(true)]
     }) do
       assert_equal 200, request("/stream/song/playlist.m3u8").first
@@ -205,7 +301,7 @@ class TestMiniradioServer < Minitest::Test
         assert_equal "no-store", headers["cache-control"]
       end
     end
-    assert_empty Dir.children(@cache_dir)
+    assert_empty hls_cache.directory("song").parent.children
   end
 
   def test_artwork_selects_first_eligible_image_by_signature
@@ -253,8 +349,9 @@ class TestMiniradioServer < Minitest::Test
   def test_disappearing_and_unreadable_cache_files_have_valid_responses
     directory = Pathname.new(File.realpath(write_cache))
     playlist = directory.join("playlist.m3u8")
-    @app.instance_variable_get(:@cache_dir).stub(:join, directory) do
-      directory.stub(:join, playlist) do
+    entry = hls_cache.fetch("song")
+    hls_cache.stub(:fetch, entry) do
+      entry.stub(:file, playlist) do
         playlist.stub(:size, -> { raise Errno::ENOENT }) do
           assert_equal 404, request("/stream/song/playlist.m3u8").first
         end
@@ -364,7 +461,7 @@ class TestMiniradioServer < Minitest::Test
       assert_includes playlist, "#EXT-X-ENDLIST"
       segment = playlist.lines.map(&:strip).find { |line| line.end_with?(".mp3") }
       assert_equal 200, request(url.sub("playlist.m3u8", segment)).first
-      path = File.join(@cache_dir, name, "playlist.m3u8")
+      path = hls_cache.directory(name).join("playlist.m3u8")
       mtime = File.mtime(path)
       assert_equal playlist, request(url).last
       assert_equal mtime, File.mtime(path)

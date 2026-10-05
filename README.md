@@ -88,10 +88,28 @@ http://localhost:9292/stream/{URL-encoded-filename-without-extension}/playlist.m
 
 For `my song.mp3`, use `/stream/my%20song/playlist.m3u8`.
 
-FFmpeg copies the audio without re-encoding. Each track gets a cache subdirectory
-containing its playlist and segments. The cache persists across restarts. When
-a source MP3 changes, stop the server and remove that track's cache subdirectory
-to regenerate it. Cache invalidation, size limits, and eviction are manual.
+FFmpeg copies the audio without re-encoding into a private work directory. After
+it exits successfully, the server validates the VOD playlist and every referenced
+segment, writes a completion record, and publishes the whole directory with a
+rename. Playlist and segment requests only serve validated, completed caches.
+Incomplete or damaged caches are regenerated on the next playlist request.
+
+Completed caches persist across restarts under
+`hls_cache/.miniradio-hls-v1/ready/<track-key>`, where `track-key` is the SHA-256
+of the UTF-8 filename without its `.mp3` extension. Old caches directly under
+`hls_cache/<filename>` are preserved but are no longer served; tracks are converted
+into the new format on demand. You can remove old caches after stopping the server.
+
+When a source MP3 or conversion settings change, stop the server and remove its
+completed cache directory to regenerate it. To regenerate all tracks, remove
+the `ready` directory while the server is stopped. Cache invalidation, size limits,
+and eviction are manual. Do not modify sources or completed caches while serving.
+
+At startup, the server cleans abandoned work directories and quarantined output.
+An inherited file lock protects work still used by a surviving FFmpeg child.
+Unknown or unsafe cleanup targets are retained and logged. Symlinks inside the
+private cache namespace are rejected. Crash recovery does not guarantee disk
+durability after power loss, and segment contents are not fully decoded or hashed.
 
 ## Limitations
 
