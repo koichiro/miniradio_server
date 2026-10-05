@@ -5,6 +5,7 @@ require "mp3info"
 require "json"
 require "uri"
 require "uri/rfc2396_parser"
+require_relative "hls_cache"
 
 # Required to use the handler from Rack 3+
 # You might need to run: gem install rackup
@@ -23,6 +24,7 @@ module MiniradioServer
       @ffmpeg_cmd = ffmpeg_cmd
       @segment_duration = segment_duration
       @logger = logger
+      @hls_cache = HlsCache.new(@cache_dir, logger)
       # For managing locks during conversion processing (using Mutex per file)
       @conversion_locks = Hash.new { |h, k| h[k] = Mutex.new } # Mutex is built-in, no require needed
       @locks_mutex = Mutex.new
@@ -59,47 +61,23 @@ module MiniradioServer
       extension = match[3].downcase # "m3u8" or "mp3"
       return not_found_response if extension == "m3u8" && requested_filename != "playlist.m3u8"
 
-      # --- Build cache paths ---
-      cache_subdir = @cache_dir.join(mp3_basename)
-      hls_playlist_path = cache_subdir.join("playlist.m3u8")
-      requested_cache_file_path = cache_subdir.join(requested_filename)
-
-      # Check lexical paths and resolved ancestors, including symlinks.
-      unless within_directory?(cache_subdir, @cache_dir) && within_directory?(requested_cache_file_path, cache_subdir)
-        @logger.warn "Attempted access outside cache directory: #{requested_cache_file_path}"
-        return forbidden_response("Access denied.")
+      if requested_filename.include?("..") || requested_filename.include?("/") || requested_filename.include?("\\")
+        return forbidden_response("Invalid segment filename.")
       end
+      return not_found_response unless requested_filename == "playlist.m3u8" || HlsCache::SEGMENT_NAME.match?(requested_filename)
 
-      # --- Process based on request type ---
-      if extension == "m3u8"
-        # M3U8 request: Check if conversion is needed, convert if necessary, and serve
-        ensure_hls_converted(original_mp3_path, cache_subdir, hls_playlist_path) do |status, message|
-          case status
-          when :ok, :already_exists
-            return serve_file(hls_playlist_path)
-          when :converting
-            # Another process/thread is converting
-            return service_unavailable_response("Conversion in progress. Please try again shortly.")
-          when :error
-            return internal_server_error_response(message || "HLS conversion failed.")
-          end
-        end
-      elsif extension == "mp3"
-        # MP3 segment request: Serve from cache (404 if not found)
-        # Normally, the m3u8 is requested first, so the cache should exist
-        if requested_cache_file_path.exist? && requested_cache_file_path.file?
-          serve_file(requested_cache_file_path)
-        else
-          # Segment request might come before m3u8, or an invalid request after conversion failure
-          @logger.warn "Segment file not found (cache not generated or invalid request?): #{requested_cache_file_path}"
-          # For simplicity, return 404. A more robust check might verify parent conversion status.
-          not_found_response("Not Found (Segment)")
-        end
+      entry = if extension == "m3u8"
+        ensure_hls_converted(mp3_basename, original_mp3_path)
       else
-        # Should not reach here
-        @logger.error "Unexpected file extension: #{extension}"
-        internal_server_error_response
+        @hls_cache.fetch(mp3_basename)
       end
+      return service_unavailable_response("Conversion in progress. Please try again shortly.") if entry == :converting
+      return internal_server_error_response("HLS conversion failed.") if entry == :error
+
+      file = entry&.file(requested_filename)
+      file ? serve_file(file) : not_found_response
+    rescue HlsCache::AccessDenied
+      forbidden_response("Access denied.")
     rescue SystemCallError => e # File access related errors (ENOENT, EACCES, etc.)
       @logger.error "File access error: #{e.message}"
       # Return 404 or 500 depending on the context
@@ -188,53 +166,45 @@ module MiniradioServer
       resolved == root || resolved.to_s.start_with?(root.to_s + File::SEPARATOR)
     end
 
-    # Check if HLS conversion is needed and execute if necessary (with lock)
-    # Yields the status (:ok, :already_exists, :converting, :error) and an optional message to the block
-    def ensure_hls_converted(input_mp3_path, output_dir, playlist_path)
-      mp3_basename = input_mp3_path.basename(".mp3").to_s
-      lock = @locks_mutex.synchronize { @conversion_locks[mp3_basename] }
+    # Keep conversion synchronous for now, but publish only validated output.
+    def ensure_hls_converted(name, input_mp3_path)
+      entry = @hls_cache.fetch(name)
+      return entry if entry
 
-      # Check if the converted file already exists (check outside lock for speed)
-      if playlist_path.exist?
-        yield(:already_exists, nil)
-        return
-      end
+      lock = @locks_mutex.synchronize { @conversion_locks[name] }
+      return :converting unless lock.try_lock
 
-      # Use Mutex for exclusive control of conversion processing
-      if lock.try_lock # If the lock is acquired, execute the conversion process
-        begin
-          # After acquiring the lock, check file existence again (another thread might have just finished)
-          if playlist_path.exist?
-            yield(:already_exists, nil)
-            return
+      begin
+        entry = @hls_cache.fetch(name)
+        return entry if entry
+
+        @hls_cache.discard_invalid(name)
+        @hls_cache.with_job do |job|
+          @logger.info "[#{name}] Starting HLS conversion..."
+          success, error_msg = convert_to_hls(input_mp3_path, job.output, job.lease)
+          unless success
+            @logger.error "[#{name}] HLS conversion failed: #{error_msg}"
+            return :error
           end
-
-          @logger.info "[#{mp3_basename}] Starting HLS conversion..."
-          success, error_msg = convert_to_hls(input_mp3_path, output_dir)
-
-          if success
-            @logger.info "[#{mp3_basename}] HLS conversion completed."
-            yield(:ok, nil)
-          else
-            @logger.error "[#{mp3_basename}] HLS conversion failed. Error: #{error_msg}"
-            yield(:error, error_msg)
-          end
-        ensure
-          lock.unlock # Always release the lock
+          entry = @hls_cache.publish(name, job, {
+            ffmpeg: @ffmpeg_cmd, segment_duration: @segment_duration, audio_codec: "copy"
+          })
+          @logger.info "[#{name}] HLS conversion completed."
+          entry
         end
-      else
-        # Failed to acquire lock = another thread is converting
-        @logger.info "[#{mp3_basename}] is currently being converted by another request."
-        yield(:converting, nil)
+      rescue HlsCache::AccessDenied
+        raise
+      rescue => e
+        @logger.error "[#{name}] HLS cache publication failed: #{e.message}"
+        :error
+      ensure
+        lock.unlock
       end
     end
 
     # Convert MP3 file to HLS format (execute ffmpeg)
     # Returns: [Boolean (success/failure), String (error message or nil)]
-    def convert_to_hls(input_mp3_path, output_dir)
-      # Create the output directory
-      FileUtils.mkdir_p(output_dir) unless output_dir.exist?
-
+    def convert_to_hls(input_mp3_path, output_dir, lease)
       playlist_path = output_dir.join("playlist.m3u8")
       segment_path_template = output_dir.join("segment%03d.mp3") # %03d is replaced by ffmpeg with sequence number
 
@@ -255,17 +225,11 @@ module MiniradioServer
       @logger.info "Executing command: #{cmd.join(" ")}"
 
       # Execute command (capture standard output, standard error, and status)
-      _stdout, stderr, status = Open3.capture3(*cmd)
+      _stdout, stderr, status = Open3.capture3(*cmd, lease.fileno => lease)
 
       unless status.success?
         error_message = "ffmpeg exited with status #{status.exitstatus}. Stderr: #{stderr.strip}"
         @logger.error "ffmpeg command execution failed. #{error_message}"
-        # If failed, attempt to delete potentially incomplete cache directory
-        begin
-          FileUtils.rm_rf(output_dir.to_s) if output_dir.exist?
-        rescue => e
-          @logger.error "Error occurred while deleting cache directory: #{output_dir}, Error: #{e.message}"
-        end
         return [false, error_message]
       end
 
@@ -282,12 +246,6 @@ module MiniradioServer
     rescue => e # Catch other exceptions around ffmpeg execution
       error_message = "Unexpected error occurred during ffmpeg execution: #{e.message}"
       @logger.error error_message
-      # Attempt to clean up cache dir on unexpected error too
-      begin
-        FileUtils.rm_rf(output_dir.to_s) if output_dir.exist?
-      rescue => e_rm
-        @logger.error "Error occurred while deleting cache directory: #{output_dir}, Error: #{e_rm.message}"
-      end
       [false, error_message]
     end
 
@@ -365,12 +323,12 @@ module MiniradioServer
     end
 
     def internal_server_error_response(message = "Internal Server Error")
-      response(500, message)
+      response(500, message, "text/plain", {"cache-control" => "no-store"})
     end
 
     def service_unavailable_response(message = "Service Unavailable")
       # Add Retry-After header suggesting a retry after 5 seconds
-      response(503, message, "text/plain", {"retry-after" => "5"})
+      response(503, message, "text/plain", {"retry-after" => "5", "cache-control" => "no-store"})
     end
   end
 end
