@@ -32,6 +32,7 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "irb"
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "minitest", "~> 6.0"
+  spec.add_development_dependency "minitest-mock", "~> 5.27"
   spec.add_development_dependency "standard", "~> 1.0"
   spec.add_development_dependency "simplecov", "~> 1.3"
   spec.add_development_dependency "bundler-audit", "~> 0.9"
