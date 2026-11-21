@@ -341,7 +341,7 @@ class TestMiniradioServer < Minitest::Test
     spec = Gem::Specification.load(File.expand_path("../miniradio_server.gemspec", __dir__))
     refute spec.required_ruby_version.satisfied_by?(Gem::Version.new("3.3.9"))
     assert spec.required_ruby_version.satisfied_by?(Gem::Version.new("3.4.0"))
-    assert spec.required_ruby_version.satisfied_by?(Gem::Version.new("4.0.7"))
+    assert spec.required_ruby_version.satisfied_by?(Gem::Version.new("4.0.10"))
   end
 
   def test_gem_packages_executable_templates_and_assets
